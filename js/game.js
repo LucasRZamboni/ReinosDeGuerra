@@ -178,6 +178,7 @@
     Object.values(data.villages).forEach(v => {
       if (v.owner === "player" && !v.ownerId) v.ownerId = "admin";
       if (v.owner !== "player" && v.ownerId) v.ownerId = null;
+      if (v.owner === "enemy" && !v.aiId) v.aiId = `ai-${v.id}`;
     });
     data.players = data.players || {};
     data.version = Math.max(Number(data.version||1), 8);
@@ -632,7 +633,7 @@
         if (target.loyalty <= 0) {
           target.owner = from.owner === "enemy" ? "enemy" : "player";
           target.ownerId = from.owner === "player" ? from.ownerId : null;
-          if (from.owner === "enemy") target.aiProfile = from.aiProfile || "expansive";
+          if (from.owner === "enemy") { target.aiProfile = from.aiProfile || "expansive"; target.aiId = from.aiId || `ai-${from.id}`; }
           target.loyalty = 100;
           target.name = `Fortaleza ${target.x}|${target.y}`;
           survivors.noble--;
@@ -717,11 +718,23 @@
           v.buildQueue.push({ building: k, start: now, end: now + (buildingTime(k, v) * 1000) / state.speed });
         }
       }
-      if (state.settings.freeVillagesTrainTroops !== false && Math.random() < 0.32 * d.aiGrowth) {
-        const options = ["spear", "sword", "axe", "archer"].filter(k => C.units[k] && meets(v, C.units[k].requires || {}) && population(v) + C.units[k].population <= popCap(v) && canPay(v, unitCost(k, v)));
+      if (state.settings.freeVillagesTrainTroops !== false && Math.random() < 0.55 * d.aiGrowth) {
+        // A IA recompõe o exército com todas as classes que já desbloqueou.
+        // Expansivas/Ofensivas também passam a formar Nobres quando a Academia e os recursos permitem.
+        const pools = profile === "defensive" ? ["spear","sword","archer","heavy","scout"]
+          : profile === "expansive" ? ["axe","light","spear","scout","ram","noble"]
+          : profile === "offensive" ? ["axe","light","mounted","ram","catapult","scout","noble"]
+          : ["spear","sword","axe","archer","scout","light"];
+        const options = pools.filter(k => C.units[k] && meets(v, C.units[k].requires || {}) && population(v) + C.units[k].population <= popCap(v) && canPay(v, unitCost(k, v)));
         if (options.length) {
-          const k = options[rand(0, options.length - 1)], cost = unitCost(k, v);
-          pay(v, cost); v.units[k] = (v.units[k] || 0) + 1;
+          // Prioriza um Nobre quando pode conquistar e ainda não possui um disponível.
+          const er = state.settings.enemyRules || {};
+          let k = options.includes("noble") && er.canConquer !== false && (v.units.noble || 0) < 1 ? "noble" : options[rand(0, options.length - 1)];
+          const cost = unitCost(k, v), room = Math.floor((popCap(v)-population(v))/Math.max(1,C.units[k].population));
+          let batch = k === "noble" ? 1 : Math.max(1, Math.min(10, room));
+          for (const r of ["wood","clay","iron"]) batch = Math.min(batch, Math.floor(v.resources[r]/Math.max(1,cost[r])));
+          batch = Math.max(0,batch);
+          if (batch) { pay(v, Object.fromEntries(["wood","clay","iron"].map(r=>[r,cost[r]*batch]))); v.units[k] = (v.units[k] || 0) + batch; }
         }
       }
     });
@@ -729,7 +742,8 @@
       Object.values(state.villages).filter(v => v.owner === "enemy").forEach(from => {
         const profile=from.aiProfile||"offensive"; const attackRate=profile==="offensive"?.32:profile==="expansive"?.22:profile==="defensive"?.08:.12; if (Math.random() > attackRate * d.aiGrowth) return;
         const er=state.settings.enemyRules||{};
-        const enemyVillageCount=Object.values(state.villages).filter(v=>v.owner==="enemy" && (v.aiProfile||"")===(from.aiProfile||"")).length;
+        if (!from.aiId) from.aiId = `ai-${from.id}`;
+        const enemyVillageCount=Object.values(state.villages).filter(v=>v.owner==="enemy" && v.aiId===from.aiId).length;
         const targets = Object.values(state.villages).filter(v => {
           if(v.id===from.id) return false;
           const dist=Math.hypot(v.x-from.x,v.y-from.y); if(dist>(Number(er.attackRadius)||25)) return false;
@@ -743,7 +757,7 @@
         const units = {}; let any=false;
         ["spear","sword","axe","archer","light","heavy","ram"].forEach(k => { const n=Math.floor((from.units[k]||0)*0.20); units[k]=n; if(n){from.units[k]-=n; any=true;} });
         const conquestAllowed=er.canConquer!==false && enemyVillageCount < (Number(er.maxVillagesPerEnemy)||12) && (target.owner==="player" ? er.canConquerPlayers!==false : er.canConquerBarbarians!==false);
-        if(conquestAllowed && (from.units.noble||0)>0 && profile==="expansive"){ units.noble=1; from.units.noble-=1; any=true; }
+        if(conquestAllowed && (from.units.noble||0)>0 && (profile==="expansive" || profile==="offensive")){ units.noble=1; from.units.noble-=1; any=true; }
         if (any) { const dist=Math.hypot(target.x-from.x,target.y-from.y), travelMs=Math.max(1000, dist*state.settings.travelSecondsPerTile*1000/state.speed); state.movements.push({id:`enemy-${Date.now()}-${Math.random()}`,fromId:from.id,targetId:target.id,units,outbound:true,start:now,end:now+travelMs,travelMs,catapultTarget:null}); }
       });
     }
@@ -864,7 +878,7 @@
     const free = Object.values(state.villages).filter(v => !v.owner);
     while (enemies.length < desired && free.length) {
       const v = free.splice(rand(0, free.length - 1), 1)[0];
-      v.owner = "enemy"; v.name = `Inimigo ${enemies.length + 1}`; v.aiProfile = ["offensive","defensive","economic","expansive"][enemies.length%4];
+      v.owner = "enemy"; v.name = `Inimigo ${enemies.length + 1}`; v.aiProfile = ["offensive","defensive","economic","expansive"][enemies.length%4]; v.aiId = `ai-${v.id}`;
       v.units.spear = Math.max(v.units.spear || 0, 80); v.units.axe = Math.max(v.units.axe || 0, 120);
       enemies.push(v);
     }
