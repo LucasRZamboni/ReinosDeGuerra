@@ -31,6 +31,8 @@
       enemiesEnabled: C.enemiesEnabled ?? false,
       enemyCount: C.enemyCount ?? 0,
       barbarianSpawn: clone(C.barbarianSpawn || {enabled:true,intervalMinutes:30,maxNewVillages:20,perCycle:1,bonusChance:15}),
+      enemyRules: clone(C.enemyRules || {}),
+      buildingPresets: clone(C.buildingPresets || {halfRatio:.5,custom:null}),
       initialBuildingLevels: clone(C.initialBuildingLevels),
       freeStartingPointLevels: clone(C.freeStartingPointLevels),
       bonus: bonusDefaults(),
@@ -44,6 +46,8 @@
       production: { ...d.production, ...(options.production || {}) },
       bonus: { ...d.bonus, ...(options.bonus || {}) },
       barbarianSpawn: { ...d.barbarianSpawn, ...(options.barbarianSpawn || {}) },
+      enemyRules: { ...d.enemyRules, ...(options.enemyRules || {}) },
+      buildingPresets: { ...d.buildingPresets, ...(options.buildingPresets || {}) },
       initialBuildingLevels: { ...d.initialBuildingLevels, ...(options.initialBuildingLevels || {}) },
       freeStartingPointLevels: { ...d.freeStartingPointLevels, ...(options.freeStartingPointLevels || {}) },
     };
@@ -294,15 +298,20 @@
     // daquele edifício (ex.: Principal 1=10, 2=12, 3=14...).
     return Math.round(b.pointBase * Math.pow(C.buildingPointFactor, lv - 1));
   }
+  const pointCache = new Map();
   function points(v) {
+    const sig=Object.keys(C.buildings).map(k=>v.buildings[k]||0).join(",")+"|"+Object.keys(C.buildings).map(k=>state.settings.freeStartingPointLevels?.[k]||0).join(",");
+    const cached=pointCache.get(v.id); if(cached?.sig===sig) return cached.value;
     // A pontuação da aldeia vem exclusivamente dos edifícios existentes.
     // Assim não há soma artificial de 28 pontos e o ritmo/velocidade do mundo
     // nunca altera a pontuação. O preset inicial padrão soma exatamente 28.
-    return Object.entries(v.buildings).reduce((n, [k, lv]) => {
+    const value=Object.entries(v.buildings).reduce((n, [k, lv]) => {
       const free = Number(state.settings.freeStartingPointLevels?.[k] || 0);
       return n + Math.max(0, buildingPoints(k, lv) - buildingPoints(k, Math.min(lv, free)));
     }, 0);
+    pointCache.set(v.id,{sig,value}); return value;
   }
+  function maxVillagePoints(){ const fake={id:"__max__",buildings:Object.fromEntries(Object.entries(C.buildings).map(([k,b])=>[k,b.maxLevel]))}; return points(fake); }
   const unitBuildings = {
     spear: "barracks",
     sword: "barracks",
@@ -621,8 +630,9 @@
         target.loyalty = Math.max(0, target.loyalty - loyaltyDamage);
         loyaltyAfter = target.loyalty;
         if (target.loyalty <= 0) {
-          target.owner = "player";
-          target.ownerId = currentPlayerId();
+          target.owner = from.owner === "enemy" ? "enemy" : "player";
+          target.ownerId = from.owner === "player" ? from.ownerId : null;
+          if (from.owner === "enemy") target.aiProfile = from.aiProfile || "expansive";
           target.loyalty = 100;
           target.name = `Fortaleza ${target.x}|${target.y}`;
           survivors.noble--;
@@ -718,12 +728,22 @@
     if (state.settings.enemiesEnabled) {
       Object.values(state.villages).filter(v => v.owner === "enemy").forEach(from => {
         const profile=from.aiProfile||"offensive"; const attackRate=profile==="offensive"?.32:profile==="expansive"?.22:profile==="defensive"?.08:.12; if (Math.random() > attackRate * d.aiGrowth) return;
-        const targets = Object.values(state.villages).filter(v => v.id !== from.id && v.owner !== "enemy");
+        const er=state.settings.enemyRules||{};
+        const enemyVillageCount=Object.values(state.villages).filter(v=>v.owner==="enemy" && (v.aiProfile||"")===(from.aiProfile||"")).length;
+        const targets = Object.values(state.villages).filter(v => {
+          if(v.id===from.id) return false;
+          const dist=Math.hypot(v.x-from.x,v.y-from.y); if(dist>(Number(er.attackRadius)||25)) return false;
+          if(v.owner==="player") return er.canAttackPlayers!==false;
+          if(v.owner==="enemy") return er.canAttackOtherEnemies===true;
+          return er.canAttackBarbarians!==false;
+        });
         if (!targets.length) return;
         targets.sort((a,b) => Math.hypot(a.x-from.x,a.y-from.y)-Math.hypot(b.x-from.x,b.y-from.y));
         const target = targets[rand(0, Math.min(7, targets.length-1))];
         const units = {}; let any=false;
         ["spear","sword","axe","archer","light","heavy","ram"].forEach(k => { const n=Math.floor((from.units[k]||0)*0.20); units[k]=n; if(n){from.units[k]-=n; any=true;} });
+        const conquestAllowed=er.canConquer!==false && enemyVillageCount < (Number(er.maxVillagesPerEnemy)||12) && (target.owner==="player" ? er.canConquerPlayers!==false : er.canConquerBarbarians!==false);
+        if(conquestAllowed && (from.units.noble||0)>0 && profile==="expansive"){ units.noble=1; from.units.noble-=1; any=true; }
         if (any) { const dist=Math.hypot(target.x-from.x,target.y-from.y), travelMs=Math.max(1000, dist*state.settings.travelSecondsPerTile*1000/state.speed); state.movements.push({id:`enemy-${Date.now()}-${Math.random()}`,fromId:from.id,targetId:target.id,units,outbound:true,start:now,end:now+travelMs,travelMs,catapultTarget:null}); }
       });
     }
@@ -761,6 +781,7 @@
     while(amount>0 && tries++<500){ const x=rand(0,C.mapWidth-1),y=rand(0,C.mapHeight-1); if(state.villages[id(x,y)]) continue; const v=makeVillage(x,y,null,state.settings); if(Math.random()*100 < (Number(cfg.bonusChance)||15)) v.bonusType=rollBonus(null,{...state.settings.bonus,chance:100}); state.villages[v.id]=v; amount--; state.spawnedBarbarians=(state.spawnedBarbarians||0)+1; }
     state.lastBarbarianSpawn=now;
   }
+  function adminSpawnNow(){ if(!isAdmin()) return; const cfg=state.settings.barbarianSpawn||{}; state.lastBarbarianSpawn=Date.now()-(Math.max(1,Number(cfg.intervalMinutes)||30)*60000)-1; const before=state.spawnedBarbarians||0; spawnBarbarians(Date.now()); S.save(state); notify((state.spawnedBarbarians||0)>before?"Ciclo de nascimento executado.":"Nenhuma aldeia foi gerada: verifique limite, ativação e espaços vazios.",(state.spawnedBarbarians||0)>before?"success":"warning"); saveRender(); }
   function process(now, dt) {
     let changed = false;
     if (!state.paused) {
@@ -805,6 +826,7 @@
               if (v) v.units[k] = (v.units[k] || 0) + n;
             }),
       );
+      spawnBarbarians(now);
       if (
         now - state.lastAiAction >
         (C.ai.actionIntervalSeconds * 1000) / state.speed
@@ -828,7 +850,7 @@
       saveRender();
       lastSave = n;
     } else {
-      if (n - lastSave >= 2000) {
+      if (n - lastSave >= (C.autosaveMs || 10000)) {
         S.save(state);
         lastSave = n;
       }
@@ -993,7 +1015,7 @@
     population,
     popCap,
     prod,
-    points,
+    points, maxVillagePoints, adminSpawnNow,
     buildingPoints,
     buildingCost,
     buildingTime,

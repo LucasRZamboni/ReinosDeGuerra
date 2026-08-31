@@ -5,7 +5,8 @@
  */
 window.GAME_CONFIG = {
   saveKey: "reinosDeGuerra_save_v1",
-  tickMs: 500,
+  tickMs: 1000,
+  autosaveMs: 10000,
   // PIN local para abrir ferramentas administrativas. Em multiplayer real, autenticação deve ficar no servidor.
   adminPin: "2468",
   // Login local para a versão estática. Em multiplayer, mover autenticação para o servidor.
@@ -49,6 +50,20 @@ window.GAME_CONFIG = {
   enemiesEnabled: false,
   enemyCount: 0,
   barbarianSpawn: { enabled: true, intervalMinutes: 30, maxNewVillages: 20, perCycle: 1, bonusChance: 15 },
+  enemyRules: {
+    canAttackPlayers: true,
+    canAttackBarbarians: true,
+    canAttackOtherEnemies: false,
+    canConquer: true,
+    canConquerPlayers: true,
+    canConquerBarbarians: true,
+    maxVillagesPerEnemy: 12,
+    attackRadius: 25,
+  },
+  buildingPresets: {
+    halfRatio: 0.5,
+    custom: null,
+  },
   adminPresets: {
     defenseTroops: { spear: 5000, sword: 5000, archer: 5000,scout: 500, heavy: 1000, catapult: 500 },
     attackTroops: { axe: 7500, light: 3000,scout: 250, ram: 300 },

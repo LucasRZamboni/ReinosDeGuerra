@@ -89,3 +89,10 @@ O Bootstrap é carregado pela internet. Sem conexão, o jogo continua funcional,
 - pontos atuais e do próximo nível aparecem na lista de edifícios;
 - Praça de Reuniões abre ataques por coordenadas com estimativa de viagem;
 - relatórios resumidos e detalhes de baixas, sobreviventes, saque e espionagem por Batedores.
+
+## Revisão 2026-08-31
+- Diagnóstico de pontuação máxima exibido no Admin; com a configuração padrão atual, todos os edifícios máximos resultam da tabela de pontos configurada (descontando níveis gratuitos iniciais).
+- Nascimento automático de bárbaras/bônus corrigido no loop do jogo, com salvamento separado e botão de teste “Gerar ciclo agora”.
+- Presets de edifícios: inicial, 50%, máximo e personalizável (Admin/configurações).
+- Regras de inimigos centralizadas: ataques, conquistas, limite de expansão e raio.
+- Otimização: tick reduzido para 1/s, autosave padrão a cada 10s e cache de pontuação por níveis.
