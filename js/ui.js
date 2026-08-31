@@ -97,6 +97,8 @@
       `<span class="resource-pill">🪵 <strong>${fmt(v.resources.wood)}/${fmt(cap)}</strong></span><span class="resource-pill">🧱 <strong>${fmt(v.resources.clay)}/${fmt(cap)}</strong></span><span class="resource-pill">⛓ <strong>${fmt(v.resources.iron)}/${fmt(cap)}</strong></span><span class="resource-pill">👥 <strong>${G.population(v)}/${G.popCap(v)}</strong></span><span class="resource-pill">★ <strong>${fmt(G.points(v))}</strong></span>`;
     $("#villageMeta").textContent =
       `${v.x}|${v.y} · ${G.points(v)} pontos · Lealdade ${v.loyalty}`;
+    if ($("#speedDisplay")) $("#speedDisplay").textContent = G.state.speed + "×";
+    if ($("#pauseBtn")) $("#pauseBtn").textContent = G.state.paused ? "Continuar" : "Pausar";
     document
       .querySelectorAll("[data-countdown]")
       .forEach(
@@ -1236,18 +1238,15 @@
       alert(err.message);
     }
   };
-  // Telas de configuração/administração são formulários de edição.
-  // O loop do jogo pode disparar game-update várias vezes por segundo; reconstruir
-  // essas telas nesse evento fazia abas, scroll e campos voltarem ao estado inicial.
-  // Nelas atualizamos somente o cabeçalho e os contadores ao vivo. Uma renderização
-  // completa continua ocorrendo ao entrar na tela ou após uma ação administrativa.
+  // O motor do jogo atualiza o estado várias vezes por segundo. Nunca fazemos uma
+  // renderização completa como consequência automática desses ticks: reconstruir a
+  // view remove foco, recria inputs/modais e leva o scroll ao topo. Isso afetava
+  // Exército, Aldeia, Administração, Ajustes e qualquer formulário aberto.
+  //
+  // As views completas são renderizadas apenas por navegação/ações explícitas do
+  // usuário. Durante o processamento do mundo atualizamos somente elementos vivos.
   window.addEventListener("game-update", () => {
-    if (view === "settings" || view === "admin") {
-      header();
-      updateLive();
-      return;
-    }
-    render();
+    updateLive();
   });
   window.addEventListener("game-tick", updateLive);
   window.addEventListener("game-objective", (e) => {
