@@ -18,21 +18,7 @@
       <label class="form-label">Usuário</label><input name="username" class="form-control mb-3" autocomplete="username" required>
       <label class="form-label">Senha</label><input name="password" type="password" class="form-control mb-3" autocomplete="current-password" required>
       <button class="btn btn-warning w-100">Entrar</button>
-      <button id="showRegisterBtn" type="button" class="btn btn-outline-light w-100 mt-2">Criar conta</button>
-      <div class="small text-secondary mt-3">Jogadores possuem progresso próprio. O acesso administrativo é separado do jogo padrão.</div>
-    </form>
-  </div>
-  <div id="registerScreen" class="auth-screen d-none">
-    <form id="registerForm" class="auth-card panel p-4">
-      <div class="brand auth-brand"><span class="brand-mark">♜</span> Reinos De Guerra</div>
-      <div class="eyebrow mt-3">Novo reino</div><h1 class="h4 mb-3">Criar conta</h1>
-      <div id="registerError" class="alert alert-danger py-2 d-none"></div>
-      <label class="form-label">Usuário</label><input name="username" class="form-control mb-3" minlength="3" required>
-      <label class="form-label">Senha</label><input name="password" type="password" class="form-control mb-3" minlength="4" required>
-      <label class="form-label">Confirmar senha</label><input name="confirm" type="password" class="form-control mb-3" minlength="4" required>
-      <button class="btn btn-warning w-100">Criar conta e iniciar</button>
-      <button id="backLoginBtn" type="button" class="btn btn-outline-light w-100 mt-2">Voltar ao login</button>
-      <div class="small text-secondary mt-3">A nova conta começa do zero com sua aldeia inicial.</div>
+      <div class="small text-secondary mt-3">O acesso administrativo é separado do jogo padrão.</div>
     </form>
   </div>
   <div id="gameShell" class="d-none">
@@ -67,7 +53,7 @@
           <button class="nav-link" data-view="army">⚔ Exército</button>
           <button class="nav-link" data-view="map">▦ Mapa</button>
           <button class="nav-link" data-view="reports">☷ Relatórios</button>
-          <button class="nav-link admin-link" data-view="settings">⚙ Ajustes</button>
+          <button class="nav-link" data-view="settings">⚙ Ajustes</button>
           <button class="nav-link admin-link" data-view="admin">★ Administração</button>
         </nav>
       </aside>
