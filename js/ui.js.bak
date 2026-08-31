@@ -1,0 +1,1241 @@
+(function () {
+  const C = GAME_CONFIG,
+    G = Game,
+    $ = (s) => document.querySelector(s),
+    fmt = (n) => Math.floor(Number(n) || 0).toLocaleString("pt-BR");
+  const trainingGroups = {
+    barracks: ["spear", "sword", "axe", "archer"],
+    stable: ["scout", "light", "mounted", "heavy"],
+    workshop: ["ram", "catapult"],
+    academy: ["noble"],
+  };
+  let view = "village",
+    attackTarget = null,
+    adminVillageId = null,
+    mapZoom = 0.72,
+    mapLeft = null,
+    mapTop = null,
+    showAllBuildings =
+      localStorage.getItem("reinosDeGuerra_showAllBuildings") === "1";
+  // Administração temporariamente liberada durante a fase de testes.
+  // Quando a autenticação voltar, centralize a checagem aqui para evitar
+  // redirecionamentos/renderizações concorrentes entre telas.
+  const isAdmin = () => true;
+  const requireAdmin = () => true;
+  let villageMode =
+    localStorage.getItem("reinosDeGuerra_villageMode") === "list"
+      ? "list"
+      : "image";
+  // O minimapa começa oculto em instalações/saves que ainda não definiram preferência.
+  if (localStorage.getItem("reinosDeGuerra_hideMiniMap") === null)
+    localStorage.setItem("reinosDeGuerra_hideMiniMap", "1");
+  const remaining = (t) =>
+    Math.max(0, Math.ceil((t - Date.now()) / 1000)) + "s";
+  const timeText = (s) => {
+    s = Math.ceil(Number(s) || 0);
+    const h = Math.floor(s / 3600),
+      m = Math.floor((s % 3600) / 60),
+      sec = s % 60;
+    return h ? `${h}h ${m}min ${sec}s` : m ? `${m}min ${sec}s` : `${sec}s`;
+  };
+  function costs(c) {
+    return `<div class="costs"><span>🪵 ${fmt(c.wood)}</span><span>🧱 ${fmt(c.clay)}</span><span>⛓ ${fmt(c.iron)}</span></div>`;
+  }
+  function requirement(req = {}, v = G.active()) {
+    const e = Object.entries(req);
+    return e.length && !G.meets(v, req)
+      ? `<div class="requirement">Requer: ${e.map(([k, n]) => `${C.buildings[k].name} ${n}`).join(" · ")}</div>`
+      : "";
+  }
+  function bonusLabel(v) {
+    const type = v.bonusType || "none",
+      b = C.bonusTypes[type];
+    if (!type || type === "none") return "";
+    const pct = Number(G.state.settings.bonus[type] || 0);
+    return `<span class="village-bonus">${b.icon} Bônus: ${b.name} +${pct}%</span>`;
+  }
+  function bonusText(v) {
+    const type = v?.bonusType || "none",
+      b = C.bonusTypes[type];
+    if (!v || type === "none") return "Sem bônus";
+    const pct = Number(G.state.settings.bonus[type] || 0);
+    const suffix =
+      type === "farm"
+        ? " de população máxima"
+        : type === "barracks"
+          ? " no treinamento do Quartel"
+          : type === "stable"
+            ? " no treinamento do Estábulo"
+            : type === "resources"
+              ? " na produção de todos os recursos"
+              : type === "storage"
+                ? " de capacidade do Armazém"
+                : ` na produção de ${b.name.toLowerCase()}`;
+    return `${b.icon} ${b.name}: +${pct}%${suffix}`;
+  }
+  function header() {
+    const v = G.active();
+    updateLive();
+    $("#villageName").textContent = v.name;
+    $("#villageSelect").innerHTML = G.owned()
+      .map(
+        (x) =>
+          `<option value="${x.id}" ${x.id === v.id ? "selected" : ""}>${x.name} (${x.x}|${x.y})</option>`,
+      )
+      .join("");
+    $("#sidebarRenameVillage").innerHTML = `<form id="renameVillageForm" class="rename-form input-group input-group-sm"><input name="name" class="form-control" maxlength="40" value="${v.name}" aria-label="Novo nome da aldeia"><button class="btn btn-outline-warning">Renomear</button></form>`;
+    $("#speedDisplay").textContent = G.state.speed + "×";
+    $("#pauseBtn").textContent = G.state.paused ? "Continuar" : "Pausar";
+  }
+  function updateLive() {
+    const v = G.active(),
+      cap = G.cap(v);
+    $("#resourceBar").innerHTML =
+      `<span class="resource-pill">🪵 <strong>${fmt(v.resources.wood)}/${fmt(cap)}</strong></span><span class="resource-pill">🧱 <strong>${fmt(v.resources.clay)}/${fmt(cap)}</strong></span><span class="resource-pill">⛓ <strong>${fmt(v.resources.iron)}/${fmt(cap)}</strong></span><span class="resource-pill">👥 <strong>${G.population(v)}/${G.popCap(v)}</strong></span><span class="resource-pill">★ <strong>${fmt(G.points(v))}</strong></span>`;
+    $("#villageMeta").textContent =
+      `${v.x}|${v.y} · ${G.points(v)} pontos · Lealdade ${v.loyalty}`;
+    document
+      .querySelectorAll("[data-countdown]")
+      .forEach(
+        (el) => (el.textContent = remaining(Number(el.dataset.countdown))),
+      );
+  }
+  function growthAsset(v) {
+    const p = G.points(v);
+    return p < 80
+      ? "outpost"
+      : p < 180
+        ? "hamlet"
+        : p < 350
+          ? "small"
+          : p < 700
+            ? "medium"
+            : p < 1400
+              ? "town"
+              : "large";
+  }
+  const growthNames = {
+    outpost: "Posto",
+    hamlet: "Povoado",
+    small: "Aldeia",
+    medium: "Vila",
+    town: "Cidade",
+    large: "Fortaleza",
+  };
+  function progressInfo(v) {
+    const p = G.points(v),
+      steps = [80, 180, 350, 700, 1400, 2800],
+      next = steps.find((n) => p < n) || steps.at(-1);
+    return {
+      percent: Math.min(100, Math.round((p / next) * 100)),
+      label:
+        p >= steps.at(-1)
+          ? "Metrópole fortificada"
+          : `${p}/${next} pts para o próximo visual`,
+    };
+  }
+  function buildingAction(k) {
+    return k === "keep"
+      ? "data-open-buildings"
+      : k === "rally"
+        ? "data-open-rally"
+        : trainingGroups[k]
+          ? `data-open-training="${k}"`
+          : `data-quick-build="${k}"`;
+  }
+  function buildingRows(v, modal = false) {
+    return Object.entries(C.buildings)
+      .filter(
+        ([k, b]) =>
+          showAllBuildings ||
+          (v.buildings[k] || 0) > 0 ||
+          G.meets(v, b.requires),
+      )
+      .map(([k, b]) => {
+        const lv = v.buildings[k] || 0,
+          max = lv >= b.maxLevel,
+          c = G.buildingCost(k, v),
+          locked = !G.meets(v, b.requires),
+          disabled =
+            max ||
+            locked ||
+            (v.buildQueue.length && !(G.state.settings.unlimitedBuildQueue === true || (v.buildings.keep || 0) >= 10)) ||
+            !Object.entries(c).every(([r, n]) => v.resources[r] >= n),
+          current = G.buildingPoints(k, lv),
+          next = max ? current : G.buildingPoints(k, lv + 1);
+        return `<tr><td><strong class="building-help" title="${b.description}">${b.icon} ${b.name}</strong>${requirement(b.requires, v)}</td><td>${lv} / ${b.maxLevel}</td><td>${current}${max ? "" : ` → ${next}`}</td><td>${max ? "—" : costs(c)}</td><td>${max ? "—" : G.buildingTime(k, v) + "s"}</td><td><button class="btn btn-sm btn-success ${modal ? "modal-build-btn" : "list-build-btn"}" data-building="${k}" ${disabled ? "disabled" : ""}>${max ? "Máximo" : locked ? "Bloqueado" : "Evoluir"}</button></td></tr>`;
+      })
+      .join("");
+  }
+  function village() {
+    const v = G.active(),
+      progress = progressInfo(v),
+      positions = [
+        [50, 22],
+        [29, 29],
+        [71, 29],
+        [40, 37],
+        [60, 37],
+        [22, 46],
+        [78, 46],
+        [32, 55],
+        [68, 55],
+        [20, 65],
+        [80, 65],
+        [29, 75],
+        [71, 75],
+        [41, 83],
+        [59, 83],
+        [84, 82],
+      ],
+      pins = Object.entries(C.buildings)
+        .map(([k, b], i) => {
+          const lv = v.buildings[k] || 0;
+          if (lv < 1) return "";
+          return `<button class="level-marker" ${buildingAction(k)} style="left:${positions[i][0]}%;top:${positions[i][1]}%" title="${b.name}: nível ${lv}/${b.maxLevel}" aria-label="${b.name}, nível ${lv}">${lv}</button>`;
+        })
+        .join(""),
+      q = v.buildQueue[0],
+      construction =
+        v.buildQueue
+          .map(
+            (x, i) =>
+              `<div class="queue-item">${i === 0 ? "🏗" : "⌛"} ${C.buildings[x.building]?.name || x.building}<span class="countdown float-end" data-countdown="${x.end}">${remaining(x.end)}</span></div>`,
+          )
+          .join("") ||
+        '<p class="text-secondary mb-0">Nenhuma construção em andamento.</p>',
+      training =
+        v.trainQueue
+          .map(
+            (x) =>
+              `<div class="queue-item">${C.units[x.unit]?.icon || ""} ${x.amount} ${C.units[x.unit]?.name || x.unit}<span class="countdown float-end" data-countdown="${x.end}">${remaining(x.end)}</span></div>`,
+          )
+          .join("") ||
+        '<p class="text-secondary mb-0">Nenhum treinamento em andamento.</p>',
+      movements =
+        G.state.movements
+          .filter((m) => m.fromId === v.id || m.targetId === v.id)
+          .map(
+            (m) =>
+              `<div class="queue-item">${m.outbound ? "⚔ Em marcha" : "↩ Retornando"} · ${G.state.villages[m.targetId]?.name || "destino"}<span class="countdown float-end" data-countdown="${m.end}">${remaining(m.end)}</span></div>`,
+          )
+          .join("") ||
+        '<p class="text-secondary mb-0">Nenhum movimento ativo.</p>';
+    const center =
+      villageMode === "image"
+        ? `<div class="village-board-wrap"><div class="village-stage compact-stage"><img class="village-art" src="assets/village-${growthAsset(v)}.png" alt="Vista ilustrada de ${v.name}">${pins}</div></div><div class="small text-secondary mt-2">Clique em um nível para abrir ou evoluir o edifício.</div>`
+        : `<div class="panel p-3 building-list-view"><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Edifício</th><th>Nível</th><th>Pontos</th><th>Custo</th><th>Tempo</th><th></th></tr></thead><tbody>${buildingRows(v)}</tbody></table></div></div>`;
+    $("#view-village").innerHTML =
+      `<div class="section-title"><div><div class="eyebrow">Vista do assentamento</div><h2>${v.name} <small class="text-secondary">${G.points(v)} pts</small></h2>${bonusLabel(v)}</div><div class="village-title-actions"><div class="btn-group btn-group-sm"><button class="btn btn-outline-light village-mode ${villageMode === "image" ? "active" : ""}" data-mode="image">Ilustração</button><button class="btn btn-outline-light village-mode ${villageMode === "list" ? "active" : ""}" data-mode="list">Lista</button></div><button id="toggleAllBuildings" class="btn btn-sm btn-outline-secondary" type="button">${showAllBuildings ? "Ocultar bloqueados" : "Mostrar edifícios"}</button></div></div>${q ? `<div class="queue-item mb-3"><strong>Em construção:</strong> ${C.buildings[q.building].name}<span class="countdown float-end" data-countdown="${q.end}">${remaining(q.end)}</span></div>` : ""}<div class="village-progress mb-2"><div><span>Estágio: ${growthNames[growthAsset(v)]}</span><span>${progress.label}</span></div><div class="progress"><div class="progress-bar" style="width:${progress.percent}%"></div></div></div><div class="row g-3 align-items-stretch village-main-layout"><div class="col-lg-8 village-main-area">${center}</div><div class="col-lg-4 village-side-queues"><section class="panel p-3 village-queue-panel"><h3 class="h6">Tropas na aldeia</h3><div class="queue-scroll">${
+        Object.entries(C.units)
+          .filter(([k]) => (v.units[k] || 0) > 0)
+          .map(
+            ([k, u]) =>
+              `<div class="queue-item">${u.icon} ${u.name}<strong class="float-end">${fmt(v.units[k] || 0)}</strong></div>`,
+          )
+          .join("") ||
+        '<p class="text-secondary mb-0">Nenhuma tropa na aldeia.</p>'
+      }</div></section><section class="panel p-3 village-queue-panel"><h3 class="h6">Construções</h3><div class="queue-scroll">${construction}</div></section><section class="panel p-3 village-queue-panel"><h3 class="h6">Fila de treinamento</h3><div class="queue-scroll">${training}</div></section><section class="panel p-3 village-queue-panel"><h3 class="h6">Movimentos</h3><div class="queue-scroll">${movements}</div></section></div></div>`;
+  }
+  function buildingsModal() {
+    const v = G.active();
+    $("#buildingsModalBody").innerHTML =
+      `<div class="d-flex justify-content-between align-items-center gap-2 mb-2"><div class="small text-secondary">Edifícios ocultos aparecem quando seus requisitos são alcançados.</div><button id="modalToggleAllBuildings" class="btn btn-sm btn-outline-secondary" type="button">${showAllBuildings ? "Ocultar bloqueados" : "Mostrar edifícios"}</button></div><div class="table-responsive"><table class="table align-middle"><thead><tr><th>Edifício</th><th>Nível</th><th>Pontos</th><th>Custo seguinte</th><th>Tempo</th><th></th></tr></thead><tbody>${buildingRows(v, true)}</tbody></table></div>`;
+    $("#modalToggleAllBuildings").onclick = () => {
+      showAllBuildings = !showAllBuildings;
+      localStorage.setItem(
+        "reinosDeGuerra_showAllBuildings",
+        showAllBuildings ? "1" : "0",
+      );
+      buildingsModal();
+    };
+    document.querySelectorAll(".modal-build-btn").forEach(
+      (b) =>
+        (b.onclick = () => {
+          G.build(b.dataset.building);
+          requestAnimationFrame(() => buildingsModal());
+        }),
+    );
+  }
+  function unitCard(k, modal = false) {
+    const v = G.active(),
+      u = C.units[k],
+      free = Math.max(0, G.popCap(v) - G.population(v)),
+      locked = !G.meets(v, u.requires),
+      max = u.limit || Math.floor(free / u.population) + (v.units[k] || 0),
+      cost = G.unitCost(k, v);
+    return `<article class="unit-card"><div class="d-flex justify-content-between"><h3>${u.icon} ${u.name}</h3><strong>${v.units[k] || 0} <small class="text-secondary">/ máx. ${fmt(max)}</small></strong></div><p class="small text-secondary">Ataque ${u.attack} · Def. ${u.defenseInfantry}/${u.defenseCavalry}/${u.defenseArcher} · Vel. ${u.speedMinutes} min/campo · Treino ${G.unitTrainTime(k, v)}s</p>${costs(cost)}${requirement(u.requires, v)}<div class="input-group input-group-sm mt-3"><input class="form-control ${modal ? "modal-recruit-amount" : "recruit-amount"}" data-unit="${k}" type="number" min="1" max="${max}" value="1"><button class="btn btn-outline-warning ${modal ? "modal-recruit-btn" : "recruit-btn"}" data-unit="${k}" ${locked || max < 1 ? "disabled" : ""}>${locked ? "Bloqueado" : "Treinar"}</button></div></article>`;
+  }
+  function trainingModal(buildingKey) {
+    $("#trainingModalTitle").textContent = C.buildings[buildingKey].name;
+    $("#trainingModalBody").innerHTML =
+      `<div class="row g-3">${(trainingGroups[buildingKey] || []).map((k) => `<div class="col-md-6">${unitCard(k, true)}</div>`).join("")}</div>`;
+    document.querySelectorAll(".modal-recruit-btn").forEach(
+      (b) =>
+        (b.onclick = () => {
+          G.recruit(
+            b.dataset.unit,
+            Number(
+              document.querySelector(
+                `.modal-recruit-amount[data-unit="${b.dataset.unit}"]`,
+              ).value,
+            ),
+          );
+          bootstrap.Modal.getInstance($("#trainingModal"))?.hide();
+        }),
+    );
+    bootstrap.Modal.getOrCreateInstance($("#trainingModal")).show();
+  }
+  function army() {
+    const v=G.active();
+    const preset = (name,obj) => `<button type="button" class="btn btn-sm btn-outline-warning army-preset" data-preset="${name}">${name}</button>`;
+    $("#view-army").innerHTML = `<div class="section-title"><div><div class="eyebrow">Forças do domínio</div><h2>Exército</h2></div><span class="text-secondary">População livre: ${fmt(Math.max(0,G.popCap(v)-G.population(v)))}</span></div>
+    <section class="panel p-3 mb-3"><div class="d-flex gap-2 flex-wrap align-items-center"><strong>Treino rápido:</strong>${preset("Defesa")}${preset("Ataque")}${preset("Personalizado")}<button id="saveArmyCustom" type="button" class="btn btn-sm btn-outline-secondary">Salvar atual como personalizado</button></div><div class="small text-secondary mt-2">O preset adiciona à fila uma composição proporcional aos recursos e população disponíveis.</div></section>
+    <div class="row g-2 army-compact">${Object.keys(C.units).map(k=>`<div class="col-md-4 col-xl-3">${unitCard(k)}</div>`).join("")}</div>`;
+  }
+  function map() {
+    const a = G.active(),
+      cells = G.state.terrain
+        .map((cell) => {
+          const v = G.villageAt(cell.x, cell.y);
+          if (v) {
+            const bonus =
+              v.bonusType && v.bonusType !== "none"
+                ? `<i class="map-bonus" title="Bônus: ${C.bonusTypes[v.bonusType].name}">${C.bonusTypes[v.bonusType].icon}</i>`
+                : "";
+            const incoming = G.state.movements.some(
+                (m) => m.outbound && m.targetId === v.id,
+              ),
+              returning = G.state.movements.some(
+                (m) => !m.outbound && m.fromId === v.id,
+              );
+            const movementMarks = `${incoming ? '<i class="map-movement attack-mark" title="Ataque a caminho">⚔</i>' : ""}${returning ? '<i class="map-movement return-mark" title="Tropas retornando">↩</i>' : ""}`;
+            return `<button class="world-cell village-tile ${v.owner === "player" ? "owned" : v.owner === "enemy" ? "enemy" : "barbarian"} bonus-${v.bonusType || "none"} ${v.id === a.id ? "active" : ""}" data-map-id="${v.id}" title="${v.owner === "enemy" ? "Inimigo — " : v.owner === "player" ? "Sua aldeia — " : "Bárbara — "}${v.name} — ${G.points(v)} pontos"><img src="assets/village-${growthAsset(v)}.png" alt="">${bonus}${movementMarks}<span>${v.x}|${v.y}</span><strong>${G.points(v)}</strong></button>`;
+          }
+          return `<button type="button" class="world-cell terrain-${cell.type} empty-map-cell" data-empty-x="${cell.x}" data-empty-y="${cell.y}" title="Espaço vazio ${cell.x}|${cell.y}">${cell.type !== "grass" ? `<img src="assets/terrain-${cell.type}.png" alt="">` : ""}</button>`;
+        })
+        .join(""),
+      size = C.mapWidth * 70 * mapZoom + 20,
+      frame = Number(G.state.settings.mapFrameSize || C.defaultMapFrameSize),
+      miniMarkers = Object.values(G.state.villages || {})
+        .map((v) => {
+          const cls =
+            v.owner === "player"
+              ? "mine"
+              : v.owner === "enemy"
+                ? "enemy"
+                : v.bonusType && v.bonusType !== "none"
+                ? "bonus"
+                : "barbarian";
+          return `<button class="mini-map-dot ${cls} ${v.id === a.id ? "current" : ""}" data-mini-id="${v.id}" style="left:${((v.x + 0.5) / C.mapWidth) * 100}%;top:${((v.y + 0.5) / C.mapHeight) * 100}%" title="${v.name} (${v.x}|${v.y})"></button>`;
+        })
+        .join("");
+    $("#view-map").innerHTML =
+      `<div class="section-title"><div><div class="eyebrow">Território conhecido</div><h2>${G.state.settings.worldName || C.worldName} · Mapa ${C.mapWidth}×${C.mapHeight}</h2></div><div class="d-flex align-items-center gap-2 flex-wrap"><label class="small">Quadro</label><select id="mapFrameSelect" class="form-select form-select-sm" style="width:auto">${C.mapFrameSizes.map((n) => `<option value="${n}" ${frame === n ? "selected" : ""}>${n}×${n}</option>`).join("")}<option value="custom" ${!C.mapFrameSizes.includes(frame) ? "selected" : ""}>Personalizado</option></select><input id="mapFrameCustom" type="number" min="30" max="250" value="${frame}" class="form-control form-control-sm" style="width:85px;${C.mapFrameSizes.includes(frame) ? "display:none" : ""}"><button id="mapCenterBtn" class="btn btn-sm btn-outline-warning" type="button">Centralizar minha aldeia</button><div class="zoom-readout">${Math.round(mapZoom * 100)}%</div></div></div><div class="mini-map-panel ${localStorage.getItem("reinosDeGuerra_hideMiniMap") === "1" ? "collapsed" : ""}"><div class="mini-map-head"><strong>Mini mapa do mundo</strong><button id="toggleMiniMap" class="btn btn-sm btn-outline-secondary" type="button">${localStorage.getItem("reinosDeGuerra_hideMiniMap") === "1" ? "Mostrar" : "Ocultar"}</button><span><i class="mini-legend mine"></i> Suas aldeias <i class="mini-legend enemy"></i> Inimigos <i class="mini-legend bonus"></i> Bônus <i class="mini-legend barbarian"></i> Bárbaras</span></div><div id="miniMap" class="mini-map-world">${miniMarkers}</div></div>${localStorage.getItem("rdg_admin_pick_map") === "1" ? '<div class="alert alert-warning py-2 mb-2 admin-map-pick-hint"><strong>Modo de criação:</strong> clique em qualquer espaço vazio para selecionar as coordenadas. <button id="cancelAdminMapPick" type="button" class="btn btn-sm btn-outline-dark ms-2">Cancelar</button></div>' : ""}<div id="mapViewport" class="world-map-viewport" style="width:100%;height:${Math.max(300, frame * 6)}px"><div id="mapSizer" style="width:${size}px;height:${size}px"><div id="mapCanvas" class="world-map-grid" style="--map-columns:${C.mapWidth};transform:scale(${mapZoom})">${cells}</div></div></div><div class="small text-secondary mt-2">Tamanho do quadro: 50×50, 100×100, 150×150 ou personalizado. O valor altera a altura visível do quadro; use “Centralizar minha aldeia” para voltar à aldeia ativa.</div>`;
+  }
+  function unitsTable(data) {
+    return `<div class="table-responsive"><table class="table table-sm"><thead><tr><th>Unidade</th><th>Enviadas/presentes</th><th>Mortas</th><th>Restantes</th></tr></thead><tbody>${
+      Object.keys(C.units)
+        .filter((k) => data.before[k] || data.losses[k] || data.survivors[k])
+        .map(
+          (k) =>
+            `<tr><td>${C.units[k].icon} ${C.units[k].name}</td><td>${fmt(data.before[k])}</td><td class="unit-dead">${fmt(data.losses[k])}</td><td class="unit-alive">${fmt(data.survivors[k])}</td></tr>`,
+        )
+        .join("") || '<tr><td colspan="4">Nenhuma unidade.</td></tr>'
+    }</tbody></table></div>`;
+  }
+  function reportModal(r) {
+    $("#reportModalTitle").textContent = r.victory ? "Vitória" : "Derrota";
+    const intel = r.intel
+      ? `<section class="report-section"><h3 class="h5">Espionagem</h3><p class="${r.intel.success ? "text-success" : "text-warning"}">${r.intel.reason}</p>${
+          r.intel.success
+            ? `<h4 class="h6">Recursos observados</h4>${costs(r.intel.resources)}<h4 class="h6 mt-3">Edifícios</h4><div class="intel-grid">${Object.entries(
+                r.intel.buildings,
+              )
+                .filter(([, n]) => n)
+                .map(([k, n]) => `<span>${C.buildings[k].name} ${n}</span>`)
+                .join(
+                  "",
+                )}</div><h4 class="h6 mt-3">Tropas restantes</h4><div class="intel-grid">${
+                Object.entries(r.intel.units)
+                  .filter(([, n]) => n)
+                  .map(
+                    ([k, n]) =>
+                      `<span>${C.units[k].icon} ${C.units[k].name}: ${fmt(n)}</span>`,
+                  )
+                  .join("") || "Nenhuma"
+              }</div>`
+            : ""
+        }</section>`
+      : "";
+    const noble = r.loyaltyDamage
+      ? `<section class="report-section mt-3"><h3 class="h5">Nobre e lealdade</h3><div class="text-warning">A aldeia perdeu <strong>${r.loyaltyDamage}%</strong> de lealdade: <strong>${r.loyaltyBefore ?? "?"}% → ${r.loyaltyAfter ?? Math.max(0, (r.loyaltyBefore ?? 100) - r.loyaltyDamage)}%</strong>.</div>${r.conquered ? '<div class="text-success mt-1">Conquistada; a lealdade da nova posse foi restaurada para 100%.</div>' : ""}</section>`
+      : "";
+    const reportBonus =
+      r.defenderBonus?.type && r.defenderBonus.type !== "none"
+        ? `<section class="report-section mt-3"><h3 class="h5">Bônus da aldeia atacada</h3><div>${C.bonusTypes[r.defenderBonus.type]?.icon || ""} <strong>${C.bonusTypes[r.defenderBonus.type]?.name || r.defenderBonus.type}</strong>: +${r.defenderBonus.value}%</div></section>`
+        : `<section class="report-section mt-3"><h3 class="h5">Bônus da aldeia atacada</h3><div class="text-secondary">Sem bônus</div></section>`;
+    const siegeRows = [];
+    if (r.siege?.ram)
+      siegeRows.push(
+        `<div>▰ Aríetes: Muralha nível ${r.siege.ram.before} → ${r.siege.ram.after} <strong class="text-danger">(-${r.siege.ram.levelsDestroyed} níveis)</strong> · ${r.siege.ram.sent} enviados</div>`,
+      );
+    if (r.siege?.catapult) {
+      const x = r.siege.catapult;
+      siegeRows.push(
+        `<div>◒ Catapultas: ${C.buildings[x.building]?.name || x.building} nível ${x.before} → ${x.after} <strong class="text-danger">(-${x.levelsDestroyed} níveis)</strong> · ${x.sent} enviadas</div>`,
+      );
+    }
+    const siege = siegeRows.length
+      ? `<section class="report-section mt-3"><h3 class="h5">Destruição</h3>${siegeRows.join("")}</section>`
+      : "";
+    $("#reportModalBody").innerHTML =
+      `<div class="battle-route"><strong>${r.attacker.name}</strong> (${r.attacker.x}|${r.attacker.y}) <span>→</span> <strong>${r.defender.name}</strong> (${r.defender.x}|${r.defender.y})</div><div class="row g-3 mt-1"><div class="col-lg-6"><section class="report-section"><h3 class="h5">Tropas atacantes</h3>${unitsTable(r.attacking)}</section></div><div class="col-lg-6"><section class="report-section"><h3 class="h5">Tropas defensoras</h3>${unitsTable(r.defending)}</section></div></div><section class="report-section mt-3"><h3 class="h5">Recursos saqueados</h3>${costs(r.loot)}${r.conquered ? '<div class="text-success mt-2">A aldeia foi conquistada.</div>' : ""}</section>${noble}${reportBonus}${siege}${intel}`;
+    bootstrap.Modal.getOrCreateInstance($("#reportModal")).show();
+  }
+  function reports() {
+    const items = G.state.reports
+      .map((r, i) =>
+        r.attacker
+          ? `<div class="report-row"><button class="log-entry report-summary ${r.type}" data-report-index="${i}"><span class="result-badge">${r.victory ? "Vitória" : "Derrota"}</span><span><strong>${r.attacker.name}</strong> (${r.attacker.x}|${r.attacker.y}) → <strong>${r.defender.name}</strong> (${r.defender.x}|${r.defender.y})</span><small>${new Date(r.time).toLocaleString("pt-BR")}</small></button><button class="btn btn-sm btn-outline-danger report-delete" data-report-id="${r.id}" title="Excluir relatório">Excluir</button></div>`
+          : "",
+      )
+      .join("");
+    $("#view-reports").innerHTML =
+      `<div class="section-title"><div><div class="eyebrow">Crônicas militares</div><h2>Relatórios</h2></div>${G.state.reports.length ? '<button id="deleteAllReports" class="btn btn-outline-danger btn-sm">Excluir todos</button>' : ""}</div>${items || '<p class="text-secondary">Nenhum relatório de batalha disponível.</p>'}`;
+  }
+  function settings() {
+    const s = G.state.settings,
+      b = s.bonus,
+      help = (t) => `<div class="setting-help">${t}</div>`;
+    $("#view-settings").innerHTML =
+      `<div class="section-title"><div><div class="eyebrow">Controle do mundo</div><h2>Ajustes e salvamento</h2></div></div><div class="settings-tabs panel p-2 mb-3"><button type="button" class="btn btn-sm settings-tab-btn active" data-settings-tab="speed">Velocidade</button><button type="button" class="btn btn-sm settings-tab-btn" data-settings-tab="world">Mundo</button><button type="button" class="btn btn-sm settings-tab-btn" data-settings-tab="bonus">Bônus</button><button type="button" class="btn btn-sm settings-tab-btn" data-settings-tab="rules">Regras e objetivo</button></div><form id="settingsForm"><section class="panel p-4 settings-pane" data-settings-pane="speed"><h3 class="h5">Velocidade e multiplicadores</h3><div class="row g-3"><div class="col-md-4"><label class="form-label">Ritmo do jogo</label><select name="speed" class="form-select">${C.speedOptions.map((n) => `<option value="${n}" ${n === G.state.speed ? "selected" : ""}>${n}×</option>`).join("")}</select>${help("Acelera produção, obras, treino e deslocamentos.")}</div><div class="col-md-4"><label class="form-label">Madeira</label><input name="wood" type="number" min=".1" step=".1" class="form-control" value="${s.production.wood}">${help("1 é a produção normal; 2 produz o dobro.")}</div><div class="col-md-4"><label class="form-label">Argila</label><input name="clay" type="number" min=".1" step=".1" class="form-control" value="${s.production.clay}">${help("Multiplica a produção de argila em todas as aldeias.")}</div><div class="col-md-4"><label class="form-label">Ferro</label><input name="iron" type="number" min=".1" step=".1" class="form-control" value="${s.production.iron}">${help("Multiplica a produção de ferro em todas as aldeias.")}</div><div class="col-md-4"><label class="form-label">Custos de edifícios</label><input name="cost" type="number" min=".1" step=".1" class="form-control" value="${s.buildCostMultiplier}">${help("Abaixo de 1 barateia; acima de 1 encarece construções.")}</div><div class="col-md-4"><label class="form-label">Tempo de construção</label><input name="time" type="number" min=".1" step=".1" class="form-control" value="${s.buildTimeMultiplier}">${help("Abaixo de 1 acelera; acima de 1 deixa obras mais lentas.")}</div><div class="col-md-4"><label class="form-label">Viagem por campo (s)</label><input name="travel" type="number" min="1" class="form-control" value="${s.travelSecondsPerTile}">${help("Tempo-base para atravessar um campo antes da velocidade da tropa.")}</div></div></section><section class="panel p-4 settings-pane" data-settings-pane="world"><h3 class="h5">Configuração do mundo</h3><div class="row g-3"><div class="col-md-4"><label class="form-label">Nome do mundo</label><input name="worldName" class="form-control" maxlength="50" value="${s.worldName || C.worldName}">${help("Pode ser alterado a qualquer momento.")}</div><div class="col-md-4"><label class="form-label">Referência de pontuação inicial</label><input name="startingPoints" type="number" min="0" class="form-control" value="${s.startingVillagePoints ?? C.startingVillagePoints}" readonly>${help("A pontuação real é calculada pelos níveis dos edifícios, descontando os níveis gratuitos configurados.")}</div></div><hr><h4 class="h6">Níveis iniciais dos edifícios</h4><div class="row g-2">${Object.entries(
+        C.buildings,
+      )
+        .map(
+          ([k, x]) =>
+            `<div class="col-md-3"><label class="form-label">${x.icon} ${x.name}</label><input name="initial-${k}" type="number" min="0" max="${x.maxLevel}" class="form-control" value="${s.initialBuildingLevels?.[k] ?? C.initialBuildingLevels[k] ?? 0}"></div>`,
+        )
+        .join(
+          "",
+        )}</div></section><section class="panel p-4 settings-pane" data-settings-pane="bonus"><h3 class="h5">Bônus das aldeias</h3><div class="row g-3"><div class="col-md-3"><label class="form-label">Chance de aldeia bônus (%)</label><input name="bonusChance" type="number" min="0" max="100" class="form-control" value="${b.chance}"></div>${[
+        ["wood", "Madeira"],
+        ["clay", "Argila"],
+        ["iron", "Ferro"],
+        ["farm", "Fazenda/população"],
+        ["resources", "Todos os recursos"],
+        ["barracks", "Quartel: custo e treino"],
+        ["stable", "Estábulo: custo e treino"],
+        ["storage", "Armazém/capacidade"],
+      ]
+        .map(
+          ([k, n]) =>
+            `<div class="col-md-3"><label class="form-label">${n} (%)</label><input name="bonus-${k}" type="number" min="0" max="90" class="form-control" value="${b[k]}"></div>`,
+        )
+        .join(
+          "",
+        )}</div><div class="setting-help mt-2">As porcentagens definem a força de cada bônus. A chance é usada ao gerar novas aldeias.</div></section><section class="panel p-4 settings-pane" data-settings-pane="rules"><h3 class="h5">Regras, IA e objetivo</h3><div class="row g-3"><div class="col-md-6"><label class="form-label">Ritmo das aldeias livres</label><select id="newDifficulty" class="form-select">${Object.entries(
+        C.difficulties,
+      )
+        .map(
+          ([k, d]) =>
+            `<option value="${k}" ${k === s.difficulty ? "selected" : ""}>${d.name}</option>`,
+        )
+        .join(
+          "",
+        )}</select><div class="form-check form-switch mt-3"><input class="form-check-input" type="checkbox" name="freeVillagesTrainTroops" id="freeVillagesTrainTroops" ${s.freeVillagesTrainTroops !== false ? "checked" : ""}><label class="form-check-label" for="freeVillagesTrainTroops">Aldeias bárbaras e bônus podem construir tropas</label></div></div><div class="col-md-6"><label class="form-label">Objetivo</label><select id="newObjective" class="form-select">${Object.entries(
+        C.objectives,
+      )
+        .map(
+          ([k, o]) =>
+            `<option value="${k}" ${k === s.objective ? "selected" : ""}>${o.name}</option>`,
+        )
+        .join(
+          "",
+        )}</select></div></div><button class="btn btn-success mt-3">Aplicar ajustes</button><div class="d-flex flex-wrap gap-2 mt-3"><button id="newWorldBtn" type="button" class="btn btn-outline-danger">Criar novo mundo</button><button id="defaultsBtn" type="button" class="btn btn-outline-secondary">Restaurar balanceamento</button><button id="exportBtn" type="button" class="btn btn-outline-warning">Exportar save</button><button id="importBtn" type="button" class="btn btn-outline-light">Importar save</button></div></section></form>`;
+  }
+  function admin() {
+    adminVillageId =
+      adminVillageId && G.state.villages[adminVillageId]
+        ? adminVillageId
+        : G.active().id;
+    const v = G.state.villages[adminVillageId],
+      cap = G.cap(v),
+      free = Math.max(0, G.popCap(v) - G.population(v)),
+      options = Object.values(G.state.villages)
+        .map(
+          (x) =>
+            `<option value="${x.id}" ${x.id === v.id ? "selected" : ""}>${x.name} (${x.x}|${x.y}) — ${G.points(x)} pts</option>`,
+        )
+        .join(""),
+      resources = ["wood", "clay", "iron"]
+        .map(
+          (r) =>
+            `<div class="col-md-4"><label class="form-label">${r === "wood" ? "Madeira" : r === "clay" ? "Argila" : "Ferro"} <small>máx. ${fmt(cap)}</small></label><input class="form-control" name="res-${r}" type="number" min="0" max="${cap}" value="${Math.floor(v.resources[r])}"></div>`,
+        )
+        .join(""),
+      units = Object.entries(C.units)
+        .map(([k, u]) => {
+          const max =
+            u.limit || Math.floor(free / u.population) + (v.units[k] || 0);
+          return `<div class="col-md-6"><label class="form-label">${u.icon} ${u.name} <small>máx. ${fmt(max)}</small></label><input class="form-control" name="unit-${k}" type="number" min="0" max="${max}" value="${v.units[k] || 0}"></div>`;
+        })
+        .join(""),
+      buildings = Object.entries(C.buildings)
+        .map(
+          ([k, b]) =>
+            `<div class="col-md-6"><label class="form-label">${b.icon} ${b.name} <small>máx. ${b.maxLevel}</small></label><input class="form-control" name="building-${k}" type="number" min="0" max="${b.maxLevel}" value="${v.buildings[k] || 0}"></div>`,
+        )
+        .join(""),
+      editableRules = (() => {
+        const copy = JSON.parse(JSON.stringify(C));
+        delete copy.saveKey;
+        return copy;
+      })(),
+      worldRulesJson = JSON.stringify(editableRules, null, 2)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    $("#view-admin").innerHTML =
+      `<div class="section-title"><div><div class="eyebrow">Modo administrador</div><h2>Controle total do mundo</h2></div><span class="badge text-bg-warning">Sem custos</span></div><div class="admin-tabs panel p-2 mb-3"><button type="button" class="btn btn-sm admin-tab-btn" data-admin-tab="world">Mundo</button><button type="button" class="btn btn-sm admin-tab-btn" data-admin-tab="rules">Regras do Mundo</button><button type="button" class="btn btn-sm admin-tab-btn" data-admin-tab="create">Criar aldeia</button><button type="button" class="btn btn-sm admin-tab-btn" data-admin-tab="village">Editar aldeias</button></div><div class="admin-tab-pane" data-admin-pane="world"><form id="adminWorldForm" class="panel p-3 mb-3"><h3 class="h5">Configuração do mundo</h3><div class="row g-2"><div class="col-md-4"><label class="form-label">Nome do mundo</label><input name="adminWorldName" class="form-control" maxlength="50" value="${G.state.settings.worldName || C.worldName}"></div><div class="col-md-2"><label class="form-label">Referência inicial</label><input name="adminStartingPoints" type="number" min="0" class="form-control" value="${G.state.settings.startingVillagePoints ?? C.startingVillagePoints}" readonly><div class="form-text">A pontuação real é calculada pelos edifícios e níveis gratuitos.</div></div><div class="col-md-2"><div class="form-check form-switch mt-4"><input class="form-check-input" type="checkbox" name="unlimitedBuildQueue" id="adminUnlimitedQueue" ${G.state.settings.unlimitedBuildQueue ? "checked" : ""}><label class="form-check-label" for="adminUnlimitedQueue">Fila múltipla</label></div></div><div class="col-md-2"><div class="form-check form-switch mt-4"><input class="form-check-input" type="checkbox" name="enemiesEnabled" id="adminEnemiesEnabled" ${G.state.settings.enemiesEnabled ? "checked" : ""}><label class="form-check-label" for="adminEnemiesEnabled">Inimigos</label></div></div><div class="col-md-2"><label class="form-label">Qtd. inimigos</label><input name="enemyCount" type="number" min="0" max="100" class="form-control" value="${G.state.settings.enemyCount || 0}"></div><div class="col-md-2 d-flex align-items-end"><button class="btn btn-warning">Aplicar ao mundo</button></div></div><div class="mt-3"><div class="small text-secondary mb-2">Níveis gratuitos para pontuação inicial</div><div class="row g-2">${Object.entries(
+        C.buildings,
+      )
+        .map(
+          ([k, b]) =>
+            `<div class="col-md-3"><label class="form-label small">${b.name}</label><input name="free-${k}" type="number" min="0" max="${b.maxLevel}" class="form-control form-control-sm" value="${G.state.settings.freeStartingPointLevels?.[k] ?? C.freeStartingPointLevels[k] ?? 0}"></div>`,
+        )
+        .join(
+          "",
+        )}</div></div></form></div><div class="admin-tab-pane" data-admin-pane="rules"><div class="panel p-3 mb-3"><div class="d-flex flex-wrap justify-content-between align-items-center gap-2"><div><h3 class="h5 mb-1">Regras do Mundo</h3><div class="text-secondary small">Editor completo dos parâmetros de config.js. Inclui economia, mapa, combate, lealdade, IA, bônus, edifícios, unidades, custos, tempos, requisitos, pontos, capacidades, objetivos e presets administrativos.</div></div><span class="badge text-bg-warning">Avançado</span></div><div class="d-flex flex-wrap gap-2 my-3"><button type="button" class="btn btn-sm btn-outline-light world-rule-preset" data-preset="classic">Clássico</button><button type="button" class="btn btn-sm btn-outline-info world-rule-preset" data-preset="fast">Rápido</button><button type="button" class="btn btn-sm btn-outline-danger world-rule-preset" data-preset="war">Guerra</button><button type="button" class="btn btn-sm btn-outline-success world-rule-preset" data-preset="casual">Casual</button><button type="button" id="worldRulesReset" class="btn btn-sm btn-outline-secondary">Recarregar atuais</button></div><div class="alert alert-warning py-2 small">Alterações são aplicadas ao balanceamento do jogo após salvar. Parâmetros estruturais como tamanho/densidade do mapa têm efeito completo ao criar um novo mundo. O <code>saveKey</code> é protegido e não pode ser alterado aqui.</div><textarea id="worldRulesJson" class="form-control font-monospace" spellcheck="false" style="min-height:55vh;max-height:65vh;overflow:auto">${worldRulesJson}</textarea><div class="d-flex flex-wrap gap-2 mt-3"><button type="button" id="saveWorldRules" class="btn btn-warning">Salvar Regras do Mundo</button><button type="button" id="restoreConfigRules" class="btn btn-outline-danger">Remover personalização</button></div></div></div><div class="admin-tab-pane" data-admin-pane="create"><form id="adminCreateVillageForm" class="panel p-3 mb-3"><div class="d-flex justify-content-between align-items-center"><h3 class="h5">Criar nova aldeia</h3><button id="adminPickMap" type="button" class="btn btn-sm btn-outline-warning">Escolher espaço no mapa</button></div><div class="row g-2"><div class="col-md-2"><label class="form-label">X</label><input name="createX" class="form-control" type="number" min="0" max="${C.mapWidth-1}" value="${localStorage.getItem("rdg_create_x") || 0}"></div><div class="col-md-2"><label class="form-label">Y</label><input name="createY" class="form-control" type="number" min="0" max="${C.mapHeight-1}" value="${localStorage.getItem("rdg_create_y") || 0}"></div><div class="col-md-3"><label class="form-label">Nome</label><input name="createName" class="form-control" value="Nova aldeia"></div><div class="col-md-2"><label class="form-label">Dono</label><select name="createOwner" class="form-select"><option value="">Bárbara</option><option value="enemy">Inimigo</option><option value="player">Jogador</option></select></div><div class="col-md-3"><label class="form-label">Bônus</label><select name="createBonus" class="form-select">${Object.entries(C.bonusTypes).map(([k,b])=>`<option value="${k}">${b.icon} ${b.name}</option>`).join("")}</select></div></div><details class="mt-3"><summary>Recursos, tropas e níveis</summary><h4 class="h6 mt-3">Recursos</h4><div class="row g-2">${["wood","clay","iron"].map(r=>`<div class="col-md-2"><label>${r}</label><input name="create-res-${r}" type="number" min="0" value="500" class="form-control"></div>`).join("")}</div><h4 class="h6 mt-3">Edifícios</h4><div class="row g-2">${Object.entries(C.buildings).map(([k,b])=>`<div class="col-md-3"><label class="small">${b.name}</label><input name="create-building-${k}" type="number" min="0" max="${b.maxLevel}" value="${G.state.settings.initialBuildingLevels[k]||0}" class="form-control form-control-sm"></div>`).join("")}</div><h4 class="h6 mt-3">Tropas</h4><div class="row g-2">${Object.entries(C.units).map(([k,u])=>`<div class="col-md-3"><label class="small">${u.icon} ${u.name}</label><input name="create-unit-${k}" type="number" min="0" value="0" class="form-control form-control-sm"></div>`).join("")}</div></details><button class="btn btn-warning mt-3">Criar aldeia</button></form></div><div class="admin-tab-pane" data-admin-pane="village"><div class="panel p-3 mb-3"><label class="form-label">Aldeia editada</label><select id="adminVillageSelect" class="form-select">${options}</select></div><div class="row g-3 mb-3"><div class="col-xl-7"><form id="adminIdentityForm" class="admin-section"><h3 class="h5">Nome, posse, lealdade e bônus</h3><div class="row g-2"><div class="col-md-4"><label class="form-label">Nome</label><input name="villageName" class="form-control" value="${v.name}" maxlength="40"></div><div class="col-md-2"><label class="form-label">Dono</label><select name="owner" class="form-select"><option value="" ${!v.owner ? "selected" : ""}>Livre</option><option value="player" ${v.owner === "player" ? "selected" : ""}>Jogador</option><option value="enemy" ${v.owner === "enemy" ? "selected" : ""}>Inimigo</option></select></div><div class="col-md-2"><label class="form-label">Lealdade</label><input name="loyalty" class="form-control" type="number" min="0" max="100" value="${v.loyalty}"></div><div class="col-md-3"><label class="form-label">Bônus</label><select name="bonusType" class="form-select">${Object.entries(
+        C.bonusTypes,
+      )
+        .map(
+          ([k, b]) =>
+            `<option value="${k}" ${v.bonusType === k ? "selected" : ""}>${b.icon} ${b.name}</option>`,
+        )
+        .join(
+          "",
+        )}</select></div><div class="col-md-1 d-flex align-items-end"><button class="btn btn-warning w-100">OK</button></div></div></form></div><div class="col-xl-5"><form id="adminResourcesForm" class="admin-section admin-resources"><h3 class="h5">Recursos</h3><div class="row g-2">${resources}</div><div class="d-flex gap-2 mt-2"><button id="adminResourcesHalf" type="button" class="btn btn-outline-warning btn-sm">50%</button><button id="adminResourcesFull" type="button" class="btn btn-outline-light btn-sm">100%</button><button class="btn btn-warning btn-sm">Aplicar</button></div></form></div></div><div class="row g-3"><div class="col-xl-5"><form id="adminTroopsForm" class="admin-section"><h3 class="h5">Tropas</h3><div class="row g-2">${units}</div><div class="d-flex gap-2 mt-3"><button id="adminDefenseTroops" type="button" class="btn btn-outline-light">Defesa</button><button id="adminAttackTroops" type="button" class="btn btn-outline-danger">Ataque</button><button id="adminCustomTroops" type="button" class="btn btn-outline-warning">Padrão</button><button id="adminSaveCustomTroops" type="button" class="btn btn-outline-secondary">Salvar personalizável</button><button id="adminLoadCustomTroops" type="button" class="btn btn-outline-secondary">Usar personalizável</button><button class="btn btn-warning">Salvar tropas</button></div></form></div><div class="col-xl-7"><form id="adminBuildingsForm" class="admin-section"><h3 class="h5">Edifícios</h3><div class="row g-2">${buildings}</div><div class="d-flex flex-wrap gap-2 mt-3"><button id="adminMaxBuildings" type="button" class="btn btn-outline-warning">Níveis máximos</button><button id="adminInitialBuildings" type="button" class="btn btn-outline-light">Níveis iniciais</button><button class="btn btn-warning">Salvar níveis dos edifícios</button></div></form></div></div><section class="admin-section mt-3"><h3 class="h5">Intervenções administrativas</h3><p class="small text-secondary">Use apenas para suporte/testes. Permite concluir filas sem alterar custos já pagos.</p><div class="d-flex gap-2 flex-wrap"><button id="adminFinishBuild" type="button" class="btn btn-outline-warning">Finalizar próxima construção</button><button id="adminFinishTraining" type="button" class="btn btn-outline-warning">Finalizar próximo treinamento</button><button id="adminFinishAll" type="button" class="btn btn-outline-danger">Finalizar todas as filas</button></div></section></div>`;
+  }
+  function showAttack(targetId = null) {
+    attackTarget = targetId;
+    const target = targetId ? G.state.villages[targetId] : null,
+      v = G.active();
+    $("#attackFormBody").innerHTML =
+      `<div class="row g-2 mb-3"><div class="col-6"><label class="form-label">Coordenada X</label><input name="targetX" id="attackX" class="form-control" type="number" min="0" max="${C.mapWidth - 1}" value="${target?.x ?? ""}" required></div><div class="col-6"><label class="form-label">Coordenada Y</label><input name="targetY" id="attackY" class="form-control" type="number" min="0" max="${C.mapHeight - 1}" value="${target?.y ?? ""}" required></div></div><div class="d-flex gap-2 flex-wrap mb-3"><button id="attackHalf" type="button" class="btn btn-sm btn-outline-warning">50% das tropas</button><button id="attackAll" type="button" class="btn btn-sm btn-outline-danger">100% das tropas</button><label class="ms-auto d-flex align-items-center gap-2 small">Ataques iguais <input name="attackCount" id="attackCount" type="number" min="1" max="20" value="1" class="form-control form-control-sm" style="width:70px"></label></div>${Object.entries(
+        C.units,
+      )
+        .map(
+          ([k, u]) =>
+            `<label class="form-label d-flex align-items-center gap-2">${u.icon}<span class="flex-grow-1">${u.name} <small class="text-secondary">(${v.units[k] || 0})</small></span><input name="${k}" class="form-control form-control-sm w-25 attack-unit" type="number" min="0" max="${v.units[k] || 0}" value="0"></label>`,
+        )
+        .join(
+          "",
+        )}<div class="mt-3"><label class="form-label">Alvo das catapultas</label><select name="catapultTarget" class="form-select"><option value="">Aleatório</option>${Object.entries(
+        C.buildings,
+      )
+        .filter(([k]) => k !== "hide" && k !== "wall")
+        .map(([k, b]) => `<option value="${k}">${b.name}</option>`)
+        .join(
+          "",
+        )}</select><div class="form-text">Usado somente quando houver catapultas no ataque.</div></div><div id="combatPreview" class="combat-preview small">Informe as coordenadas e escolha as tropas.</div>`;
+    const refresh = () => {
+      const target = G.villageAt($("#attackX").value, $("#attackY").value),
+        units = Object.fromEntries(
+          [...document.querySelectorAll(".attack-unit")].map((x) => [
+            x.name,
+            Number(x.value),
+          ]),
+        );
+      if (!target)
+        return ($("#combatPreview").textContent =
+          "Não existe aldeia nessas coordenadas.");
+      attackTarget = target.id;
+      const e = G.estimate(target.id, units);
+      const ownIncoming = G.state.movements.filter(
+        (m) =>
+          m.outbound &&
+          m.targetId === target.id &&
+          G.state.villages[m.fromId]?.owner === "player",
+      );
+      const sentInfo = ownIncoming.length
+        ? `<div class="mt-2"><strong>Seus ataques a caminho:</strong>${ownIncoming
+            .map(
+              (m) =>
+                `<div class="small mt-1">⚔ ${Object.entries(m.units)
+                  .filter(([, q]) => q > 0)
+                  .map(
+                    ([k, q]) =>
+                      `${C.units[k]?.icon || ""} ${C.units[k]?.name || k}: ${fmt(q)}`,
+                  )
+                  .join(
+                    " · ",
+                  )} <span class="text-secondary">(${remaining(m.end)})</span></div>`,
+            )
+            .join("")}</div>`
+        : "";
+      $("#combatPreview").innerHTML =
+        `Alvo: <strong>${target.name}</strong> (${target.x}|${target.y}) · Distância ${e.distance.toFixed(1)} campos · Tempo <strong>${timeText(e.seconds)}</strong> · Força ${e.attack} · Defesa provável ${e.defense} · Chance ${e.chance}%<div class="mt-2"><strong>Lealdade atual:</strong> ${target.loyalty ?? C.baseLoyalty}%</div><div class="mt-2"><strong>Bônus da aldeia:</strong> ${bonusText(target)}</div>${sentInfo}`;
+    };
+    const fillAttack = (ratio) => {
+      const count = Math.max(1, Number($("#attackCount")?.value) || 1);
+      document
+        .querySelectorAll(".attack-unit")
+        .forEach(
+          (i) => (i.value = Math.floor(((Number(i.max) || 0) * ratio) / count)),
+        );
+      refresh();
+    };
+    $("#attackHalf").onclick = () => fillAttack(0.5);
+    $("#attackAll").onclick = () => fillAttack(1);
+    document
+      .querySelectorAll(".attack-unit,#attackX,#attackY")
+      .forEach((i) => (i.oninput = refresh));
+    refresh();
+    bootstrap.Modal.getOrCreateInstance($("#attackModal")).show();
+  }
+  function observeVillage(id) {
+    if (!isAdmin()) return showAttack(id);
+    const v = G.state.villages[id];
+    if (!v || v.owner === "player") return;
+    const type = v.owner === "enemy" ? "Inimigo" : (v.bonusType && v.bonusType !== "none" ? "Aldeia bônus" : "Aldeia bárbara");
+    const res = ["wood","clay","iron"].map(r => `${r === "wood" ? "🪵" : r === "clay" ? "🧱" : "⛓"} ${fmt(Math.floor(v.resources[r] || 0))}`).join(" &nbsp; ");
+    const buildings = Object.entries(C.buildings).filter(([k]) => (v.buildings[k] || 0) > 0).map(([k,b]) => `<div class="queue-item">${b.icon} ${b.name}<strong class="float-end">Nv. ${v.buildings[k]}</strong></div>`).join("") || '<p class="text-secondary">Nenhum edifício.</p>';
+    const units = Object.entries(C.units).filter(([k]) => (v.units[k] || 0) > 0).map(([k,u]) => `<div class="queue-item">${u.icon} ${u.name}<strong class="float-end">${fmt(v.units[k])}</strong></div>`).join("") || '<p class="text-secondary">Nenhuma tropa.</p>';
+    const queues = (v.buildQueue || []).map(q => `<div class="queue-item">🏗 ${C.buildings[q.building]?.name || q.building}<span class="countdown float-end" data-countdown="${q.end}">${remaining(q.end)}</span></div>`).join("") || '<p class="text-secondary">Sem construções.</p>';
+    $("#observeVillageTitle").textContent = `${v.name} (${v.x}|${v.y})`;
+    $("#observeVillageBody").innerHTML = `<div class="alert alert-secondary py-2">Modo somente leitura — nenhuma alteração pode ser feita nesta aldeia.</div><div class="row g-3"><div class="col-md-6"><section class="panel p-3 mb-3"><div class="eyebrow">${type}</div><h3 class="h5 mb-2">${G.points(v)} pontos</h3><div><strong>Recursos:</strong> ${res}</div><div><strong>Armazém:</strong> ${fmt(G.cap(v))}</div><div><strong>População:</strong> ${fmt(G.population(v))}/${fmt(G.popCap(v))}</div><div><strong>Lealdade:</strong> ${Math.round(v.loyalty ?? C.baseLoyalty)}%</div>${bonusLabel(v)}</section><section class="panel p-3"><h3 class="h6">Construções em andamento</h3><div class="queue-scroll">${queues}</div></section></div><div class="col-md-3"><section class="panel p-3"><h3 class="h6">Edifícios</h3><div class="queue-scroll" style="max-height:420px">${buildings}</div></section></div><div class="col-md-3"><section class="panel p-3"><h3 class="h6">Tropas atuais</h3><div class="queue-scroll" style="max-height:420px">${units}</div></section></div></div>`;
+    $("#observeAttackBtn").onclick = () => { bootstrap.Modal.getOrCreateInstance($("#observeVillageModal")).hide(); showAttack(v.id); };
+    bootstrap.Modal.getOrCreateInstance($("#observeVillageModal")).show();
+  }
+  function bindMap() {
+    const viewport = $("#mapViewport"),
+      canvas = $("#mapCanvas"),
+      sizer = $("#mapSizer");
+    if (!viewport) return;
+    if (mapLeft === null) {
+      mapLeft = Math.max(
+        0,
+        G.active().x * 70 * mapZoom - viewport.clientWidth / 2,
+      );
+      mapTop = Math.max(
+        0,
+        G.active().y * 70 * mapZoom - viewport.clientHeight / 2,
+      );
+    }
+    const centerActiveVillage = () => {
+      const cell = 70 * mapZoom;
+      mapLeft = Math.max(
+        0,
+        G.active().x * cell + cell / 2 - viewport.clientWidth / 2,
+      );
+      mapTop = Math.max(
+        0,
+        G.active().y * cell + cell / 2 - viewport.clientHeight / 2,
+      );
+      viewport.scrollLeft = mapLeft;
+      viewport.scrollTop = mapTop;
+    };
+    viewport.scrollLeft = mapLeft;
+    viewport.scrollTop = mapTop;
+    if ($("#mapCenterBtn")) $("#mapCenterBtn").onclick = centerActiveVillage;
+    if ($("#toggleMiniMap"))
+      $("#toggleMiniMap").onclick = () => {
+        const hidden =
+          localStorage.getItem("reinosDeGuerra_hideMiniMap") === "1";
+        localStorage.setItem("reinosDeGuerra_hideMiniMap", hidden ? "0" : "1");
+        render(true);
+      };
+    document.querySelectorAll(".mini-map-dot").forEach(
+      (dot) =>
+        (dot.onclick = () => {
+          const v = G.state.villages[dot.dataset.miniId];
+          if (!v) return;
+          const cell = 70 * mapZoom;
+          mapLeft = Math.max(
+            0,
+            v.x * cell + cell / 2 - viewport.clientWidth / 2,
+          );
+          mapTop = Math.max(
+            0,
+            v.y * cell + cell / 2 - viewport.clientHeight / 2,
+          );
+          requestAnimationFrame(() => {
+            viewport.scrollLeft = mapLeft;
+            viewport.scrollTop = mapTop;
+          });
+        }),
+    );
+    const chooseEmptyMapCell = (cell) => {
+      if (!cell || localStorage.getItem("rdg_admin_pick_map") !== "1") return false;
+      localStorage.setItem("rdg_create_x", cell.dataset.emptyX);
+      localStorage.setItem("rdg_create_y", cell.dataset.emptyY);
+      localStorage.removeItem("rdg_admin_pick_map");
+      localStorage.setItem("rdg_admin_tab", "create");
+      view = "admin";
+      render(true);
+      return true;
+    };
+    document.querySelectorAll(".empty-map-cell").forEach((cell) => {
+      cell.onclick = (e) => { e.preventDefault(); e.stopPropagation(); chooseEmptyMapCell(cell); };
+    });
+    if ($("#cancelAdminMapPick")) $("#cancelAdminMapPick").onclick = () => {
+      localStorage.removeItem("rdg_admin_pick_map"); render(true);
+    };
+    if ($("#mapFrameSelect"))
+      $("#mapFrameSelect").onchange = (e) => {
+        const custom = $("#mapFrameCustom");
+        if (e.target.value === "custom") {
+          custom.style.display = "block";
+          custom.focus();
+          return;
+        }
+        mapLeft = mapTop = null;
+        G.updateSettings({ mapFrameSize: Number(e.target.value) });
+      };
+    if ($("#mapFrameCustom"))
+      $("#mapFrameCustom").onchange = (e) => {
+        const n = Math.max(30, Math.min(250, Number(e.target.value) || 100));
+        mapLeft = mapTop = null;
+        G.updateSettings({ mapFrameSize: n });
+      };
+    viewport.onscroll = () => {
+      mapLeft = viewport.scrollLeft;
+      mapTop = viewport.scrollTop;
+    };
+    viewport.onwheel = (e) => {
+      e.preventDefault();
+      const rect = viewport.getBoundingClientRect(),
+        x = e.clientX - rect.left + viewport.scrollLeft,
+        y = e.clientY - rect.top + viewport.scrollTop,
+        old = mapZoom;
+      mapZoom = Math.max(
+        0.35,
+        Math.min(1.5, mapZoom + (e.deltaY < 0 ? 0.1 : -0.1)),
+      );
+      canvas.style.transform = `scale(${mapZoom})`;
+      const size = C.mapWidth * 70 * mapZoom + 20,
+        frame = Number(G.state.settings.mapFrameSize || C.defaultMapFrameSize);
+      sizer.style.width = size + "px";
+      sizer.style.height = size + "px";
+      viewport.scrollLeft = (x / old) * mapZoom - (e.clientX - rect.left);
+      viewport.scrollTop = (y / old) * mapZoom - (e.clientY - rect.top);
+      $(".zoom-readout").textContent = Math.round(mapZoom * 100) + "%";
+    };
+    let dragging = false,
+      startX = 0,
+      startY = 0,
+      left = 0,
+      top = 0;
+    viewport.onpointerdown = (e) => {
+      if (e.target.closest(".village-tile")) return;
+      if (localStorage.getItem("rdg_admin_pick_map") === "1" && e.target.closest(".empty-map-cell")) return;
+      dragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      left = viewport.scrollLeft;
+      top = viewport.scrollTop;
+      viewport.setPointerCapture(e.pointerId);
+      viewport.classList.add("dragging");
+    };
+    viewport.onpointermove = (e) => {
+      if (dragging) {
+        viewport.scrollLeft = left - (e.clientX - startX);
+        viewport.scrollTop = top - (e.clientY - startY);
+      }
+    };
+    viewport.onpointerup = () => {
+      dragging = false;
+      viewport.classList.remove("dragging");
+    };
+  }
+  function bindDynamic() {
+    document
+      .querySelectorAll("[data-quick-build],.list-build-btn")
+      .forEach(
+        (b) =>
+          (b.onclick = () =>
+            G.build(b.dataset.quickBuild || b.dataset.building)),
+      );
+    document.querySelectorAll("[data-open-buildings]").forEach(
+      (b) =>
+        (b.onclick = () => {
+          buildingsModal();
+          bootstrap.Modal.getOrCreateInstance($("#buildingsModal")).show();
+        }),
+    );
+    document
+      .querySelectorAll("[data-open-training]")
+      .forEach(
+        (b) => (b.onclick = () => trainingModal(b.dataset.openTraining)),
+      );
+    document
+      .querySelectorAll("[data-open-rally]")
+      .forEach((b) => (b.onclick = () => showAttack()));
+    document
+      .querySelectorAll(".recruit-btn")
+      .forEach(
+        (b) =>
+          (b.onclick = () =>
+            G.recruit(
+              b.dataset.unit,
+              Number(
+                document.querySelector(
+                  `.recruit-amount[data-unit="${b.dataset.unit}"]`,
+                ).value,
+              ),
+            )),
+      );
+    document.querySelectorAll(".village-tile").forEach(
+      (b) =>
+        (b.onclick = () => {
+          const target = G.state.villages[b.dataset.mapId];
+          if (target.owner === "player") {
+            G.setActive(target.id);
+            view = "village";
+          } else observeVillage(target.id);
+        }),
+    );
+    document.querySelectorAll(".village-mode").forEach(
+      (b) =>
+        (b.onclick = () => {
+          villageMode = b.dataset.mode;
+          localStorage.setItem("reinosDeGuerra_villageMode", villageMode);
+          render(true);
+        }),
+    );
+    if ($("#toggleAllBuildings"))
+      $("#toggleAllBuildings").onclick = () => {
+        showAllBuildings = !showAllBuildings;
+        localStorage.setItem(
+          "reinosDeGuerra_showAllBuildings",
+          showAllBuildings ? "1" : "0",
+        );
+        render(true);
+      };
+    document
+      .querySelectorAll(".report-summary")
+      .forEach(
+        (b) =>
+          (b.onclick = () =>
+            reportModal(G.state.reports[Number(b.dataset.reportIndex)])),
+      );
+    document.querySelectorAll(".report-delete").forEach(
+      (b) =>
+        (b.onclick = (e) => {
+          e.stopPropagation();
+          G.deleteReport(b.dataset.reportId);
+        }),
+    );
+    if ($("#deleteAllReports"))
+      $("#deleteAllReports").onclick = () => {
+        if (confirm("Excluir todos os relatórios?")) G.clearReports();
+      };
+    $("#renameVillageForm")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      G.renameVillage(G.active().id, new FormData(e.target).get("name"));
+    });
+    if (view === "settings") {
+      const settingsTabs = document.querySelectorAll(".settings-tab-btn");
+      const settingsPanes = document.querySelectorAll(".settings-pane");
+      const openSettingsTab = (key) => {
+        settingsTabs.forEach((b) => b.classList.toggle("active", b.dataset.settingsTab === key));
+        settingsPanes.forEach((p) => p.style.display = p.dataset.settingsPane === key ? "block" : "none");
+      };
+      settingsTabs.forEach((b) => b.onclick = () => openSettingsTab(b.dataset.settingsTab));
+      openSettingsTab("speed");
+      $("#exportBtn").onclick = () => G.export();
+      $("#importBtn").onclick = () => $("#importInput").click();
+      $("#settingsForm").onsubmit = (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target),
+          bonus = { chance: Number(f.get("bonusChance")) };
+        [
+          "wood",
+          "clay",
+          "iron",
+          "farm",
+          "resources",
+          "barracks",
+          "stable",
+          "storage",
+        ].forEach((k) => (bonus[k] = Number(f.get("bonus-" + k))));
+        const initialBuildingLevels = {};
+        Object.keys(C.buildings).forEach(
+          (k) => (initialBuildingLevels[k] = Number(f.get("initial-" + k))),
+        );
+        G.setSpeed(Number(f.get("speed")));
+        G.updateSettings({
+          worldName: String(f.get("worldName") || C.worldName)
+            .trim()
+            .slice(0, 50),
+          startingVillagePoints:
+            Number(f.get("startingPoints")) || C.startingVillagePoints,
+          initialBuildingLevels,
+          production: {
+            wood: Number(f.get("wood")),
+            clay: Number(f.get("clay")),
+            iron: Number(f.get("iron")),
+          },
+          buildCostMultiplier: Number(f.get("cost")),
+          buildTimeMultiplier: Number(f.get("time")),
+          travelSecondsPerTile: Number(f.get("travel")),
+          difficulty: $("#newDifficulty").value,
+          objective: $("#newObjective").value,
+          freeVillagesTrainTroops: f.get("freeVillagesTrainTroops") === "on",
+          bonus,
+        });
+      };
+      $("#newWorldBtn").onclick = () => {
+        if (
+          confirm(
+            `Apagar o progresso e iniciar ${G.state.settings.worldName || "este mundo"} novamente?`,
+          )
+        )
+          G.reset({
+            ...G.state.settings,
+            difficulty: $("#newDifficulty").value,
+            objective: $("#newObjective").value,
+          });
+      };
+      $("#defaultsBtn").onclick = () =>
+        G.updateSettings({
+          production: { wood: 1, clay: 1, iron: 1 },
+          buildCostMultiplier: 1,
+          buildTimeMultiplier: 1,
+          travelSecondsPerTile: 18,
+          bonus: {
+            chance: 12,
+            wood: 30,
+            clay: 30,
+            iron: 30,
+            farm: 10,
+            resources: 15,
+            barracks: 10,
+            stable: 10,
+            storage: 50,
+          },
+        });
+    }
+    if (view === "army") {
+      const getCustom=()=>{ try{return JSON.parse(localStorage.getItem("rdg_army_custom")||"null")||C.adminPresets.customTroops;}catch{return C.adminPresets.customTroops;} };
+      const trainPreset=(preset)=>{
+        const v=G.active(), entries=Object.entries(preset).filter(([k,n])=>C.units[k]&&n>0);
+        let popNeed=entries.reduce((a,[k,n])=>a+n*C.units[k].population,0), free=Math.max(0,G.popCap(v)-G.population(v));
+        let ratio=popNeed?Math.min(1,free/popNeed):0;
+        const totalCost={wood:0,clay:0,iron:0};
+        for(const [k,n] of entries){ const cost=G.unitCost(k,v); for(const r of ["wood","clay","iron"]) totalCost[r]+=(cost[r]||0)*n; }
+        for(const r of ["wood","clay","iron"]) if(totalCost[r]>0) ratio=Math.min(ratio,(v.resources[r]||0)/totalCost[r]);
+        ratio=Math.max(0,Math.min(1,ratio));
+        entries.forEach(([k,n])=>{ const q=Math.floor(n*ratio); if(q>0) G.recruit(k,q); });
+      };
+      document.querySelectorAll(".army-preset").forEach(b=>b.onclick=()=>trainPreset(b.dataset.preset==="Defesa"?C.adminPresets.defenseTroops:b.dataset.preset==="Ataque"?C.adminPresets.attackTroops:getCustom()));
+      $("#saveArmyCustom").onclick=()=>{ const custom={}; document.querySelectorAll(".recruit-amount").forEach(i=>custom[i.dataset.unit]=Math.max(0,Number(i.value)||0)); localStorage.setItem("rdg_army_custom",JSON.stringify(custom)); alert("Preset personalizado salvo."); };
+    }
+    if (view === "admin") {
+      const setAdminTab = (name) => {
+        const valid = ["world", "rules", "create", "village"].includes(name) ? name : "world";
+        localStorage.setItem("rdg_admin_tab", valid);
+        document.querySelectorAll("[data-admin-pane]").forEach(p => p.classList.toggle("d-none", p.dataset.adminPane !== valid));
+        document.querySelectorAll(".admin-tab-btn").forEach(b => {
+          const active = b.dataset.adminTab === valid;
+          b.classList.toggle("btn-warning", active); b.classList.toggle("btn-outline-secondary", !active);
+        });
+      };
+      document.querySelectorAll(".admin-tab-btn").forEach(b => b.onclick = () => setAdminTab(b.dataset.adminTab));
+      setAdminTab(localStorage.getItem("rdg_admin_tab") || "world");
+      if ($("#adminFinishBuild")) $("#adminFinishBuild").onclick=()=>G.adminFinishBuild(adminVillageId,0);
+      if ($("#adminFinishTraining")) $("#adminFinishTraining").onclick=()=>G.adminFinishTraining(adminVillageId,0);
+      if ($("#adminFinishAll")) $("#adminFinishAll").onclick=()=>{ if(confirm("Finalizar todas as construções e treinamentos desta aldeia?")) G.adminFinishAll(adminVillageId); };
+      const rulesBox = $("#worldRulesJson");
+      const parseRules = () => {
+        try { return JSON.parse(rulesBox.value); }
+        catch (err) {
+          window.dispatchEvent(new CustomEvent("game-notify", { detail: { msg: "JSON inválido em Regras do Mundo: " + err.message, type: "danger" } }));
+          return null;
+        }
+      };
+      const deepMergeRules = (target, source) => {
+        Object.entries(source || {}).forEach(([k,v]) => {
+          if (v && typeof v === "object" && !Array.isArray(v)) {
+            if (!target[k] || typeof target[k] !== "object" || Array.isArray(target[k])) target[k] = {};
+            deepMergeRules(target[k], v);
+          } else target[k] = v;
+        });
+        return target;
+      };
+      const baseRules = () => { const x = JSON.parse(JSON.stringify(C)); delete x.saveKey; return x; };
+      const presetPatch = (name) => ({
+        classic: { defaultSpeed:4, buildCostMultiplier:1, buildTimeMultiplier:1, travelSecondsPerTile:12, villageDensity:.09, baseVillageDefense:20, conquestLoyaltyDamage:[25,35], ai:{actionIntervalSeconds:25} },
+        fast: { defaultSpeed:8, buildCostMultiplier:.85, buildTimeMultiplier:.55, travelSecondsPerTile:7, villageDensity:.11, baseVillageDefense:18, conquestLoyaltyDamage:[25,35], ai:{actionIntervalSeconds:18} },
+        war: { defaultSpeed:6, buildCostMultiplier:.9, buildTimeMultiplier:.7, travelSecondsPerTile:6, villageDensity:.13, baseVillageDefense:25, conquestLoyaltyDamage:[25,35], ai:{actionIntervalSeconds:12} },
+        casual: { defaultSpeed:4, buildCostMultiplier:.75, buildTimeMultiplier:.8, travelSecondsPerTile:10, villageDensity:.075, baseVillageDefense:12, conquestLoyaltyDamage:[28,35], ai:{actionIntervalSeconds:40} }
+      }[name] || {});
+      document.querySelectorAll(".world-rule-preset").forEach(btn => btn.onclick = () => {
+        const data = parseRules(); if (!data) return;
+        deepMergeRules(data, presetPatch(btn.dataset.preset));
+        rulesBox.value = JSON.stringify(data, null, 2);
+      });
+      $("#worldRulesReset").onclick = () => { rulesBox.value = JSON.stringify(baseRules(), null, 2); };
+      $("#saveWorldRules").onclick = () => {
+        const data = parseRules(); if (!data) return;
+        delete data.saveKey;
+        localStorage.setItem("reinosDeGuerra_worldRules", JSON.stringify(data));
+        window.dispatchEvent(new CustomEvent("game-notify", { detail: { msg: "Regras do Mundo salvas. Recarregando para aplicar todos os parâmetros…", type: "success" } }));
+        setTimeout(() => location.reload(), 250);
+      };
+      $("#restoreConfigRules").onclick = () => {
+        localStorage.removeItem("reinosDeGuerra_worldRules");
+        window.dispatchEvent(new CustomEvent("game-notify", { detail: { msg: "Personalização removida. Recarregando config.js…", type: "success" } }));
+        setTimeout(() => location.reload(), 250);
+      };
+      $("#adminWorldForm").onsubmit = (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target),
+          freeStartingPointLevels = {};
+        Object.keys(C.buildings).forEach(
+          (k) => (freeStartingPointLevels[k] = Number(f.get("free-" + k)) || 0),
+        );
+        G.updateSettings({
+          worldName: String(f.get("adminWorldName") || C.worldName)
+            .trim()
+            .slice(0, 50),
+          startingVillagePoints:
+            Number(f.get("adminStartingPoints")) || C.startingVillagePoints,
+          freeStartingPointLevels,
+          unlimitedBuildQueue: f.get("unlimitedBuildQueue") === "on",
+          enemiesEnabled: f.get("enemiesEnabled") === "on",
+          enemyCount: Number(f.get("enemyCount")) || 0,
+        });
+      };
+      $("#adminPickMap").onclick = () => { localStorage.setItem("rdg_admin_pick_map","1"); localStorage.setItem("rdg_admin_tab","create"); view="map"; render(true); };
+      $("#adminCreateVillageForm").onsubmit = (e) => {
+        e.preventDefault(); const f=new FormData(e.target), buildings={}, units={}, resources={};
+        Object.keys(C.buildings).forEach(k=>buildings[k]=Number(f.get("create-building-"+k))||0);
+        Object.keys(C.units).forEach(k=>units[k]=Number(f.get("create-unit-"+k))||0);
+        ["wood","clay","iron"].forEach(r=>resources[r]=Number(f.get("create-res-"+r))||0);
+        G.adminCreateVillage({x:f.get("createX"),y:f.get("createY"),name:f.get("createName"),owner:f.get("createOwner"),bonusType:f.get("createBonus"),buildings,units,resources});
+        localStorage.removeItem("rdg_create_x"); localStorage.removeItem("rdg_create_y");
+      };
+      $("#adminVillageSelect").onchange = (e) => {
+        adminVillageId = e.target.value;
+        render(true);
+      };
+      $("#adminIdentityForm").onsubmit = (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target);
+        G.adminIdentity(adminVillageId, {
+          name: f.get("villageName"),
+          owner: f.get("owner"),
+          loyalty: Number(f.get("loyalty")),
+          bonusType: f.get("bonusType"),
+        });
+      };
+      $("#adminResourcesForm").onsubmit = (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target),
+          resources = {};
+        ["wood", "clay", "iron"].forEach(
+          (r) => (resources[r] = Number(f.get("res-" + r))),
+        );
+        G.adminUpdate(adminVillageId, { resources });
+      };
+      const fillAdminResources = (ratio) => {
+        const village = G.state.villages[adminVillageId];
+        const max = G.cap(village);
+        ["wood", "clay", "iron"].forEach((r) => {
+          const input = document.querySelector(`#adminResourcesForm [name="res-${r}"]`);
+          if (input) input.value = Math.floor(max * ratio);
+        });
+      };
+      $("#adminResourcesHalf").onclick = () => fillAdminResources(0.5);
+      $("#adminResourcesFull").onclick = () => fillAdminResources(1);
+      $("#adminTroopsForm").onsubmit = (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target),
+          units = {};
+        Object.keys(C.units).forEach(
+          (k) => (units[k] = Number(f.get("unit-" + k))),
+        );
+        G.adminUpdate(adminVillageId, { units });
+      };
+      $("#adminBuildingsForm").onsubmit = (e) => {
+        e.preventDefault();
+        const f = new FormData(e.target),
+          buildings = {};
+        Object.keys(C.buildings).forEach(
+          (k) => (buildings[k] = Number(f.get("building-" + k))),
+        );
+        G.adminUpdate(adminVillageId, { buildings });
+      };
+      $("#adminMaxBuildings").onclick = () =>
+        G.adminUpdate(adminVillageId, {
+          buildings: Object.fromEntries(
+            Object.entries(C.buildings).map(([k, b]) => [k, b.maxLevel]),
+          ),
+        });
+      const applyArmyPreset = (preset) => {
+        const village = G.state.villages[adminVillageId],
+          cap = G.popCap(village);
+        const need = Object.entries(preset).reduce(
+          (n, [k, q]) => n + (C.units[k]?.population || 0) * q,
+          0,
+        );
+        const ratio = need > cap ? cap / need : 1,
+          units = {};
+        Object.keys(C.units).forEach(
+          (k) => (units[k] = Math.floor((preset[k] || 0) * ratio)),
+        );
+        G.adminUpdate(adminVillageId, { units });
+        if (ratio < 1)
+          window.dispatchEvent(
+            new CustomEvent("game-notify", {
+              detail: {
+                msg: "Preset ajustado proporcionalmente à população disponível.",
+                type: "warning",
+              },
+            }),
+          );
+      };
+      $("#adminDefenseTroops").onclick = () =>
+        applyArmyPreset(C.adminPresets.defenseTroops);
+      $("#adminAttackTroops").onclick = () =>
+        applyArmyPreset(C.adminPresets.attackTroops);
+      $("#adminCustomTroops").onclick = () =>
+        G.adminUpdate(adminVillageId, {
+          units: { ...C.adminPresets.customTroops },
+        });
+      $("#adminSaveCustomTroops").onclick = () => {
+        const f = new FormData($("#adminTroopsForm")),
+          u = {};
+        Object.keys(C.units).forEach(
+          (k) => (u[k] = Number(f.get("unit-" + k)) || 0),
+        );
+        localStorage.setItem("reinosDeGuerra_customTroops", JSON.stringify(u));
+        window.dispatchEvent(
+          new CustomEvent("game-notify", {
+            detail: { msg: "Preset personalizável salvo.", type: "success" },
+          }),
+        );
+      };
+      $("#adminLoadCustomTroops").onclick = () => {
+        let u;
+        try {
+          u = JSON.parse(localStorage.getItem("reinosDeGuerra_customTroops"));
+        } catch (e) {}
+        G.adminUpdate(adminVillageId, {
+          units: u || { ...C.adminPresets.customTroops },
+        });
+      };
+      $("#adminInitialBuildings").onclick = () =>
+        G.adminUpdate(adminVillageId, {
+          buildings: { ...G.state.settings.initialBuildingLevels },
+        });
+    }
+    if (view === "map") bindMap();
+  }
+  const renderers = { village, army, map, reports, settings, admin };
+  function render(force = false) {
+    const focused = document.activeElement,
+      editing =
+        !force &&
+        focused?.matches?.("input,select,textarea") &&
+        (focused.closest("#view-settings") ||
+          focused.closest("#view-admin") ||
+          focused.closest("#attackModal"));
+    header();
+    if (editing) return;
+    renderers[view]();
+    document
+      .querySelectorAll(".game-view")
+      .forEach((e) => e.classList.add("d-none"));
+    $("#view-" + view).classList.remove("d-none");
+    document
+      .querySelectorAll(".game-nav .nav-link")
+      .forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+    bindDynamic();
+  }
+  document.querySelectorAll(".game-nav .nav-link").forEach(
+    (b) =>
+      (b.onclick = () => {
+        if (b.dataset.view === "admin" && !requireAdmin()) return;
+        view = b.dataset.view;
+        render(true);
+      }),
+  );
+  $("#villageSelect").addEventListener("change", (e) => {
+    G.setActive(e.target.value);
+    view = "village";
+  });
+  $("#pauseBtn").onclick = () => G.togglePause();
+  $("#attackForm").onsubmit = (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target),
+      target = G.villageAt(f.get("targetX"), f.get("targetY")),
+      units = Object.fromEntries(
+        Object.keys(C.units).map((k) => [k, Number(f.get(k))]),
+      );
+    if (target) {
+      const count = Math.max(
+        1,
+        Math.min(20, Number(f.get("attackCount")) || 1),
+      );
+      const available = { ...G.active().units };
+      const enough = Object.entries(units).every(
+        ([k, n]) => (available[k] || 0) >= n * count,
+      );
+      if (!enough)
+        window.dispatchEvent(
+          new CustomEvent("game-notify", {
+            detail: {
+              msg: "Não há tropas suficientes para repetir esse ataque nessa quantidade.",
+              type: "danger",
+            },
+          }),
+        );
+      else
+        for (let i = 0; i < count; i++)
+          G.sendAttack(target.id, units, f.get("catapultTarget"));
+    } else
+      window.dispatchEvent(
+        new CustomEvent("game-notify", {
+          detail: {
+            msg: "Não existe aldeia nessas coordenadas.",
+            type: "warning",
+          },
+        }),
+      );
+    bootstrap.Modal.getInstance($("#attackModal"))?.hide();
+  };
+  $("#importInput").onchange = async (e) => {
+    try {
+      await G.import(e.target.files[0]);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+  window.addEventListener("game-update", () => render());
+  window.addEventListener("game-tick", updateLive);
+  window.addEventListener("game-objective", (e) => {
+    $("#objectiveReachedText").textContent = e.detail.name;
+    $("#objectiveNextSelect").innerHTML = Object.entries(C.objectives)
+      .map(
+        ([k, o]) =>
+          `<option value="${k}" ${k === G.state.settings.objective ? "selected" : ""}>${o.name}</option>`,
+      )
+      .join("");
+    bootstrap.Modal.getOrCreateInstance($("#objectiveModal")).show();
+  });
+  $("#objectiveContinueBtn").onclick = () =>
+    bootstrap.Modal.getInstance($("#objectiveModal"))?.hide();
+  $("#objectiveSetBtn").onclick = () => {
+    G.setObjective($("#objectiveNextSelect").value);
+    bootstrap.Modal.getInstance($("#objectiveModal"))?.hide();
+  };
+  window.addEventListener("game-notify", (e) => {
+    const a = document.createElement("div");
+    a.className = `alert alert-${e.detail.type} alert-dismissible fade show`;
+    a.innerHTML = `${e.detail.msg}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+    $("#alerts").append(a);
+    setTimeout(() => a.remove(), 3500);
+  });
+  render(true);
+})();
