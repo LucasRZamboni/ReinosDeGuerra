@@ -159,3 +159,8 @@ body:has(.admin-map-pick-hint) .empty-map-cell{cursor:crosshair;outline:1px dash
   .world-map-viewport{touch-action:none}
 }
 @media(max-width:420px){.admin-action-buttons .btn{flex-basis:100%}}
+
+.auth-screen{position:fixed;inset:0;z-index:3000;display:grid;place-items:center;padding:20px;background:radial-gradient(circle at top,#28352d,#101512 70%)}
+.auth-card{width:min(420px,100%);box-shadow:0 20px 70px rgba(0,0,0,.45)}
+.auth-brand{font-size:1.35rem}.auth-screen.d-none{display:none!important}
+@media(max-width:575.98px){#sessionRole{display:none}.auth-card{padding:1.25rem!important}}

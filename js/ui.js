@@ -17,11 +17,13 @@
     mapTop = null,
     showAllBuildings =
       localStorage.getItem("reinosDeGuerra_showAllBuildings") === "1";
-  // Administração temporariamente liberada durante a fase de testes.
-  // Quando a autenticação voltar, centralize a checagem aqui para evitar
-  // redirecionamentos/renderizações concorrentes entre telas.
-  const isAdmin = () => true;
-  const requireAdmin = () => true;
+  const isAdmin = () => !!window.RDGAuth?.isAdmin();
+  const requireAdmin = () => {
+    if (isAdmin()) return true;
+    view = "village";
+    window.dispatchEvent(new CustomEvent("game-notify", {detail:{msg:"Acesso restrito ao administrador.",type:"warning"}}));
+    return false;
+  };
   let villageMode =
     localStorage.getItem("reinosDeGuerra_villageMode") === "list"
       ? "list"
@@ -463,6 +465,7 @@
         )}</select></div></div><button type="button" class="btn btn-success mt-3 save-settings-tab" data-save-tab="rules">Salvar regras e objetivo</button><div class="d-flex flex-wrap gap-2 mt-3"><button id="newWorldBtn" type="button" class="btn btn-outline-danger">Criar novo mundo</button><button id="defaultsBtn" type="button" class="btn btn-outline-secondary">Restaurar balanceamento</button><button id="exportBtn" type="button" class="btn btn-outline-warning">Exportar save</button><button id="importBtn" type="button" class="btn btn-outline-light">Importar save</button></div></section></form>`;
   }
   function admin() {
+    if (!requireAdmin()) return village();
     adminVillageId =
       adminVillageId && G.state.villages[adminVillageId]
         ? adminVillageId
@@ -1267,5 +1270,21 @@
     $("#alerts").append(a);
     setTimeout(() => a.remove(), 3500);
   });
-  render(true);
+  function applySessionUI() {
+    const session = window.RDGAuth?.current();
+    const login = $("#loginScreen"), shell = $("#gameShell");
+    if (!session) { login?.classList.remove("d-none"); shell?.classList.add("d-none"); return false; }
+    login?.classList.add("d-none"); shell?.classList.remove("d-none");
+    document.querySelectorAll(".admin-link").forEach(el=>el.classList.toggle("d-none", !isAdmin()));
+    const badge=$("#sessionRole"); if(badge) badge.textContent=isAdmin()?"Administrador":"Jogador";
+    return true;
+  }
+  $("#loginForm").onsubmit = (e) => {
+    e.preventDefault(); const f=new FormData(e.currentTarget);
+    if (!window.RDGAuth.login(f.get("username"),f.get("password"))) { $("#loginError").textContent="Usuário ou senha inválidos."; $("#loginError").classList.remove("d-none"); return; }
+    $("#loginError").classList.add("d-none"); applySessionUI(); view="village"; render(true);
+  };
+  $("#logoutBtn").onclick=()=>window.RDGAuth.logout();
+  document.querySelectorAll('[data-view="admin"]').forEach(b=>b.addEventListener("click",e=>{ if(!isAdmin()){e.preventDefault();e.stopImmediatePropagation();requireAdmin();} },true));
+  if (applySessionUI()) render(true);
 })();

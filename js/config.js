@@ -8,6 +8,11 @@ window.GAME_CONFIG = {
   tickMs: 500,
   // PIN local para abrir ferramentas administrativas. Em multiplayer real, autenticação deve ficar no servidor.
   adminPin: "2468",
+  // Login local para a versão estática. Em multiplayer, mover autenticação para o servidor.
+  auth: {
+    player: { username: "jogador", password: "jogador" },
+    admin: { username: "admin", password: "2468" },
+  },
   defaultSpeed: 4,
   speedOptions: [1, 2, 4, 8],
   productionPerMinute: { wood: 1, clay: 1, iron: 1 },
