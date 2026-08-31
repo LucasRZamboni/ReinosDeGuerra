@@ -737,7 +737,9 @@
   function process(now, dt) {
     let changed = false;
     if (!state.paused) {
-      owned().forEach((v) => {
+      // Processa economia e filas de TODAS as aldeias. Isso mantém bárbaras, bônus e inimigas
+      // sob as mesmas regras de produção/construção do jogador.
+      Object.values(state.villages).forEach((v) => {
         ["wood", "clay", "iron"].forEach(
           (r) =>
             (v.resources[r] = Math.min(

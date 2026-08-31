@@ -148,3 +148,14 @@ body:has(.admin-map-pick-hint) .empty-map-cell{cursor:crosshair;outline:1px dash
 
 /* Exército compacto */
 .army-compact .unit-card{padding:.65rem;font-size:.88rem}.army-compact .unit-card h3{font-size:.95rem;margin-bottom:.25rem}.army-compact .unit-card p{font-size:.75rem;margin-bottom:.35rem}.army-compact .unit-card .mt-3{margin-top:.45rem!important}
+
+/* Mobile/admin responsiveness */
+.admin-action-buttons{align-items:stretch}
+@media(max-width:767px){
+  .admin-action-buttons .btn{flex:1 1 calc(50% - .5rem);white-space:normal;min-width:0}
+  .admin-section{padding:.75rem;overflow:hidden}
+  .settings-tabs{overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch}
+  .settings-tabs .btn{flex:0 0 auto}
+  .world-map-viewport{touch-action:none}
+}
+@media(max-width:420px){.admin-action-buttons .btn{flex-basis:100%}}
