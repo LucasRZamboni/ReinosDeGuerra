@@ -1004,7 +1004,7 @@
     }
     if (view === "admin") {
       const setAdminTab = (name) => {
-        const valid = ["world", "rules", "create", "village"].includes(name) ? name : "world";
+        const valid = ["world", "rules", "create", "village", "bulk"].includes(name) ? name : "world";
         localStorage.setItem("rdg_admin_tab", valid);
         document.querySelectorAll("[data-admin-pane]").forEach(p => p.classList.toggle("d-none", p.dataset.adminPane !== valid));
         document.querySelectorAll(".admin-tab-btn").forEach(b => {
