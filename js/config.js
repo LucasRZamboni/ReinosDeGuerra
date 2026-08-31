@@ -10,7 +10,7 @@ window.GAME_CONFIG = {
   adminPin: "2468",
   // Login local para a versão estática. Em multiplayer, mover autenticação para o servidor.
   auth: {
-    player: { username: "jogador", password: "jogador" },
+    player: { username: "jogador", password: "123456" },
     admin: { username: "admin", password: "2468" },
   },
   defaultSpeed: 4,
