@@ -18,7 +18,17 @@
       <label class="form-label">Usuário</label><input name="username" class="form-control mb-3" autocomplete="username" required>
       <label class="form-label">Senha</label><input name="password" type="password" class="form-control mb-3" autocomplete="current-password" required>
       <button class="btn btn-warning w-100">Entrar</button>
-      <div class="small text-secondary mt-3">O acesso administrativo é separado do jogo padrão.</div>
+      <button id="showRegisterBtn" type="button" class="btn btn-outline-light w-100 mt-2">Criar conta</button>
+      <div class="small text-secondary mt-3">Jogadores compartilham o mesmo mundo. O acesso administrativo é separado.</div>
+    </form>
+    <form id="registerForm" class="auth-card panel p-4 d-none">
+      <div class="brand auth-brand"><span class="brand-mark">♜</span> Reinos De Guerra</div>
+      <div class="eyebrow mt-3">Novo reino</div><h1 class="h4 mb-3">Criar conta</h1>
+      <div id="registerError" class="alert alert-danger py-2 d-none"></div>
+      <label class="form-label">Usuário</label><input name="username" class="form-control mb-3" required minlength="3">
+      <label class="form-label">Senha</label><input name="password" type="password" class="form-control mb-3" required minlength="4">
+      <button class="btn btn-warning w-100">Criar conta e entrar</button>
+      <button id="backLoginBtn" type="button" class="btn btn-outline-light w-100 mt-2">Voltar</button>
     </form>
   </div>
   <div id="gameShell" class="d-none">

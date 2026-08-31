@@ -164,3 +164,6 @@ body:has(.admin-map-pick-hint) .empty-map-cell{cursor:crosshair;outline:1px dash
 .auth-card{width:min(420px,100%);box-shadow:0 20px 70px rgba(0,0,0,.45)}
 .auth-brand{font-size:1.35rem}.auth-screen.d-none{display:none!important}
 @media(max-width:575.98px){#sessionRole{display:none}.auth-card{padding:1.25rem!important}}
+
+/* Mundo compartilhado: aldeias de outros jogadores */
+.village-tile.other-player{outline:2px solid #4f8cff;box-shadow:0 0 0 1px rgba(79,140,255,.25) inset}

@@ -4,6 +4,11 @@
     clone = (o) => JSON.parse(JSON.stringify(o)),
     rand = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a,
     id = (x, y) => `v-${x}-${y}`;
+  const session = () => window.RDGAuth?.current?.() || null;
+  const currentPlayerId = () => session()?.playerId || "admin";
+  const isAdmin = () => session()?.role === "admin";
+  const isMine = (v) => !!v && v.owner === "player" && v.ownerId === currentPlayerId();
+  const isPlayerVillage = (v) => !!v && v.owner === "player";
   const emptyUnits = () =>
     Object.fromEntries(Object.keys(C.units).map((k) => [k, 0]));
   const bonusDefaults = () => clone(C.bonusDefaults || {
@@ -65,6 +70,7 @@
       x,
       y,
       owner,
+      ownerId: player ? currentPlayerId() : null,
       bonusType: rollBonus(owner, settings.bonus),
       loyalty: C.baseLoyalty,
       resources: player
@@ -114,7 +120,7 @@
           }
       }
     return {
-      version: 7,
+      version: 8,
       createdAt: Date.now(),
       lastUpdate: Date.now(),
       lastAiAction: Date.now(),
@@ -160,6 +166,15 @@
       });
       data.version = 7;
     }
+
+    // v8: mundo compartilhado. Aldeias de jogadores passam a ter ownerId.
+    // A aldeia legada fica com o administrador para preservar o save existente.
+    Object.values(data.villages).forEach(v => {
+      if (v.owner === "player" && !v.ownerId) v.ownerId = "admin";
+      if (v.owner !== "player" && v.ownerId) v.ownerId = null;
+    });
+    data.players = data.players || {};
+    data.version = Math.max(Number(data.version||1), 8);
     if (!data.terrain || data.terrain.length !== C.mapWidth * C.mapHeight)
       data.terrain = makeTerrain();
     if (!data.lastAiAction) data.lastAiAction = Date.now();
@@ -201,16 +216,12 @@
     data.reports = data.reports || [];
     data.settings.objective =
       data.settings.objective === "rivals" ? "map100" : data.settings.objective;
-    if (!data.villages[data.activeVillageId]?.owner)
-      data.activeVillageId =
-        Object.values(data.villages).find((v) => v.owner === "player")?.id ||
-        Object.keys(data.villages)[0];
+    if (!data.villages[data.activeVillageId]) data.activeVillageId = Object.keys(data.villages)[0];
     return data;
   }
   let state = migrate(S.load() || newState());
   const active = () => state.villages[state.activeVillageId],
-    owned = () =>
-      Object.values(state.villages).filter((v) => v.owner === "player"),
+    owned = () => Object.values(state.villages).filter(isMine),
     villageAt = (x, y) => state.villages[id(Number(x), Number(y))];
   const cap = (v) => {
     const base = C.warehouseByLevel[Math.min(30, v.buildings.storage || 1)];
@@ -481,7 +492,7 @@
       target = state.villages[targetId];
     if (!target)
       return notify("Não existe aldeia nessas coordenadas.", "warning");
-    if (target.owner === "player")
+    if (isMine(target))
       return notify(
         "Não é possível atacar uma aldeia em sua posse.",
         "warning",
@@ -609,6 +620,7 @@
         loyaltyAfter = target.loyalty;
         if (target.loyalty <= 0) {
           target.owner = "player";
+          target.ownerId = currentPlayerId();
           target.loyalty = 100;
           target.name = `Fortaleza ${target.x}|${target.y}`;
           survivors.noble--;
@@ -637,8 +649,10 @@
       });
     // Relatórios de batalha pertencem ao jogador: não registrar combates
     // entre inimigos/bárbaros que não envolvam nenhuma aldeia do jogador.
-    const playerInvolved = from.owner === "player" || target.owner === "player";
+    const reportRecipients = [...new Set([from.owner === "player" ? from.ownerId : null, target.owner === "player" ? target.ownerId : null].filter(Boolean))];
+    const playerInvolved = reportRecipients.length > 0;
     if (playerInvolved) state.reports.unshift({
+      recipients: reportRecipients,
       id: `rpt-${Date.now()}-${Math.random()}`,
       time: Date.now(),
       type: win ? "win" : "loss",
@@ -895,7 +909,7 @@
   }
   function renameVillage(villageId, name) {
     const v = state.villages[villageId];
-    if (!v || v.owner !== "player")
+    if (!v || !isMine(v))
       return notify(
         "Somente aldeias em sua posse podem ser renomeadas.",
         "warning",
@@ -908,7 +922,27 @@
     saveRender();
     notify("Aldeia renomeada.");
   }
+  function ensureCurrentPlayer() {
+    const sess=session(); if(!sess) return null;
+    const pid=currentPlayerId();
+    state.players = state.players || {};
+    state.players[pid] = { id:pid, username:sess.username, role:sess.role, lastSeen:Date.now() };
+    let mine=Object.values(state.villages).filter(v=>v.owner==="player"&&v.ownerId===pid);
+    if(!mine.length && sess.role==="player") {
+      const occupied=new Set(Object.keys(state.villages)); let spots=[];
+      for(let y=0;y<C.mapHeight;y++) for(let x=0;x<C.mapWidth;x++) if(!occupied.has(id(x,y))) spots.push([x,y]);
+      if(!spots.length) return notify("Não há espaço livre para uma nova aldeia.","danger");
+      const [x,y]=spots[rand(0,spots.length-1)]; const v=makeVillage(x,y,"player",state.settings);
+      v.ownerId=pid; v.name=`Aldeia de ${sess.username}`; v.buildings={...Object.fromEntries(Object.keys(C.buildings).map(k=>[k,0])),...clone(state.settings.initialBuildingLevels)};
+      state.villages[v.id]=v; mine=[v];
+      state.reports.unshift({id:`info-${Date.now()}`,time:Date.now(),type:"info",playerId:pid,title:"Bem-vindo ao mundo",text:`Sua aldeia inicial foi fundada em ${x}|${y}.`});
+    }
+    if(mine.length && (!state.villages[state.activeVillageId] || (!isAdmin() && !isMine(state.villages[state.activeVillageId])))) state.activeVillageId=mine[0].id;
+    S.save(state); return mine[0]||null;
+  }
+
   window.Game = {
+    ensureCurrentPlayer, isMine, currentPlayerId,
     get state() {
       return state;
     },
@@ -932,7 +966,7 @@
     recruit,
     sendAttack,
     deleteReport(id) { state.reports = state.reports.filter((r) => r.id !== id); saveRender(); },
-    clearReports() { state.reports = []; saveRender(); },
+    clearReports() { const pid=currentPlayerId(); state.reports = isAdmin() ? [] : state.reports.filter(r => !(r.recipients||[]).includes(pid) && r.playerId !== pid); saveRender(); },
     adminUpdate,
     adminIdentity,
     adminCreateVillage,
@@ -940,7 +974,7 @@
     syncEnemies,
     renameVillage,
     setActive(i) {
-      if (state.villages[i]?.owner === "player") {
+      if (isMine(state.villages[i])) {
         state.activeVillageId = i;
         saveRender();
       }

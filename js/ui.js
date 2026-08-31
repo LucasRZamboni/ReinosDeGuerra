@@ -18,6 +18,7 @@
     showAllBuildings =
       localStorage.getItem("reinosDeGuerra_showAllBuildings") === "1";
   const isAdmin = () => !!window.RDGAuth?.isAdmin();
+  const visibleReports = () => isAdmin() ? G.state.reports : G.state.reports.filter(r => !r.recipients || r.recipients.includes(G.currentPlayerId()) || r.playerId === G.currentPlayerId());
   const requireAdmin = () => {
     if (isAdmin()) return true;
     view = "village";
@@ -312,7 +313,7 @@
                 (m) => !m.outbound && m.fromId === v.id,
               );
             const movementMarks = `${incoming ? '<i class="map-movement attack-mark" title="Ataque a caminho">⚔</i>' : ""}${returning ? '<i class="map-movement return-mark" title="Tropas retornando">↩</i>' : ""}`;
-            return `<button class="world-cell village-tile ${v.owner === "player" ? "owned" : v.owner === "enemy" ? "enemy" : "barbarian"} bonus-${v.bonusType || "none"} ${v.id === a.id ? "active" : ""}" data-map-id="${v.id}" title="${v.owner === "enemy" ? "Inimigo — " : v.owner === "player" ? "Sua aldeia — " : "Bárbara — "}${v.name} — ${G.points(v)} pontos"><img src="assets/village-${growthAsset(v)}.png" alt="">${bonus}${movementMarks}<span>${v.x}|${v.y}</span><strong>${G.points(v)}</strong></button>`;
+            return `<button class="world-cell village-tile ${G.isMine(v) ? "owned" : v.owner === "player" ? "other-player" : v.owner === "enemy" ? "enemy" : "barbarian"} bonus-${v.bonusType || "none"} ${v.id === a.id ? "active" : ""}" data-map-id="${v.id}" title="${v.owner === "enemy" ? "Inimigo — " : G.isMine(v) ? "Sua aldeia — " : v.owner === "player" ? "Outro jogador — " : "Bárbara — "}${v.name} — ${G.points(v)} pontos"><img src="assets/village-${growthAsset(v)}.png" alt="">${bonus}${movementMarks}<span>${v.x}|${v.y}</span><strong>${G.points(v)}</strong></button>`;
           }
           return `<button type="button" class="world-cell terrain-${cell.type} empty-map-cell" data-empty-x="${cell.x}" data-empty-y="${cell.y}" title="Espaço vazio ${cell.x}|${cell.y}">${cell.type !== "grass" ? `<img src="assets/terrain-${cell.type}.png" alt="">` : ""}</button>`;
         })
@@ -322,7 +323,7 @@
       miniMarkers = Object.values(G.state.villages || {})
         .map((v) => {
           const cls =
-            v.owner === "player"
+            G.isMine(v)
               ? "mine"
               : v.owner === "enemy"
                 ? "enemy"
@@ -391,20 +392,22 @@
     const siege = siegeRows.length
       ? `<section class="report-section mt-3"><h3 class="h5">Destruição</h3>${siegeRows.join("")}</section>`
       : "";
-    const reportIndexes = G.state.reports.map((x, i) => x?.attacker ? i : -1).filter(i => i >= 0);
-    const currentIndex = G.state.reports.indexOf(r);
+    const reports = visibleReports();
+    const reportIndexes = reports.map((x, i) => x?.attacker ? i : -1).filter(i => i >= 0);
+    const currentIndex = reports.indexOf(r);
     const navPos = reportIndexes.indexOf(currentIndex);
     const prevIndex = navPos > 0 ? reportIndexes[navPos - 1] : null;
     const nextIndex = navPos >= 0 && navPos < reportIndexes.length - 1 ? reportIndexes[navPos + 1] : null;
     const nav = `<div class="d-flex justify-content-between align-items-center gap-2 mb-3 report-modal-nav"><button type="button" id="reportPrev" class="btn btn-sm btn-outline-light" ${prevIndex === null ? "disabled" : ""}>← Relatório anterior</button><span class="small text-secondary">${navPos >= 0 ? navPos + 1 : 1} de ${reportIndexes.length}</span><button type="button" id="reportNext" class="btn btn-sm btn-outline-light" ${nextIndex === null ? "disabled" : ""}>Próximo relatório →</button></div>`;
     $("#reportModalBody").innerHTML =
       `${nav}<div class="battle-route"><strong>${r.attacker.name}</strong> (${r.attacker.x}|${r.attacker.y}) <span>→</span> <strong>${r.defender.name}</strong> (${r.defender.x}|${r.defender.y})</div><div class="row g-3 mt-1"><div class="col-lg-6"><section class="report-section"><h3 class="h5">Tropas atacantes</h3>${unitsTable(r.attacking)}</section></div><div class="col-lg-6"><section class="report-section"><h3 class="h5">Tropas defensoras</h3>${unitsTable(r.defending)}</section></div></div><section class="report-section mt-3"><h3 class="h5">Recursos saqueados</h3>${costs(r.loot)}${r.conquered ? '<div class="text-success mt-2">A aldeia foi conquistada.</div>' : ""}</section>${noble}${reportBonus}${siege}${intel}`;
-    if ($("#reportPrev") && prevIndex !== null) $("#reportPrev").onclick = () => reportModal(G.state.reports[prevIndex]);
-    if ($("#reportNext") && nextIndex !== null) $("#reportNext").onclick = () => reportModal(G.state.reports[nextIndex]);
+    if ($("#reportPrev") && prevIndex !== null) $("#reportPrev").onclick = () => reportModal(reports[prevIndex]);
+    if ($("#reportNext") && nextIndex !== null) $("#reportNext").onclick = () => reportModal(reports[nextIndex]);
     bootstrap.Modal.getOrCreateInstance($("#reportModal")).show();
   }
   function reports() {
-    const items = G.state.reports
+    const reports = visibleReports();
+    const items = reports
       .map((r, i) =>
         r.attacker
           ? `<div class="report-row"><button class="log-entry report-summary ${r.type}" data-report-index="${i}"><span class="result-badge">${r.victory ? "Vitória" : "Derrota"}</span><span><strong>${r.attacker.name}</strong> (${r.attacker.x}|${r.attacker.y}) → <strong>${r.defender.name}</strong> (${r.defender.x}|${r.defender.y})</span><small>${new Date(r.time).toLocaleString("pt-BR")}</small></button><button class="btn btn-sm btn-outline-danger report-delete" data-report-id="${r.id}" title="Excluir relatório">Excluir</button></div>`
@@ -412,7 +415,7 @@
       )
       .join("");
     $("#view-reports").innerHTML =
-      `<div class="section-title"><div><div class="eyebrow">Crônicas militares</div><h2>Relatórios</h2></div>${G.state.reports.length ? '<button id="deleteAllReports" class="btn btn-outline-danger btn-sm">Excluir todos</button>' : ""}</div>${items || '<p class="text-secondary">Nenhum relatório de batalha disponível.</p>'}`;
+      `<div class="section-title"><div><div class="eyebrow">Crônicas militares</div><h2>Relatórios</h2></div>${reports.length ? '<button id="deleteAllReports" class="btn btn-outline-danger btn-sm">Excluir todos</button>' : ""}</div>${items || '<p class="text-secondary">Nenhum relatório de batalha disponível.</p>'}`;
   }
   function settings() {
     const s = G.state.settings,
@@ -565,7 +568,7 @@
         (m) =>
           m.outbound &&
           m.targetId === target.id &&
-          G.state.villages[m.fromId]?.owner === "player",
+          G.isMine(G.state.villages[m.fromId]),
       );
       const sentInfo = ownIncoming.length
         ? `<div class="mt-2"><strong>Seus ataques a caminho:</strong>${ownIncoming
@@ -606,7 +609,7 @@
   function observeVillage(id) {
     if (!isAdmin()) return showAttack(id);
     const v = G.state.villages[id];
-    if (!v || v.owner === "player") return;
+    if (!v || G.isMine(v)) return;
     const type = v.owner === "enemy" ? "Inimigo" : (v.bonusType && v.bonusType !== "none" ? "Aldeia bônus" : "Aldeia bárbara");
     const res = ["wood","clay","iron"].map(r => `${r === "wood" ? "🪵" : r === "clay" ? "🧱" : "⛓"} ${fmt(Math.floor(v.resources[r] || 0))}`).join(" &nbsp; ");
     const buildings = Object.entries(C.buildings).filter(([k]) => (v.buildings[k] || 0) > 0).map(([k,b]) => `<div class="queue-item">${b.icon} ${b.name}<strong class="float-end">Nv. ${v.buildings[k]}</strong></div>`).join("") || '<p class="text-secondary">Nenhum edifício.</p>';
@@ -812,7 +815,7 @@
       (b) =>
         (b.onclick = () => {
           const target = G.state.villages[b.dataset.mapId];
-          if (target.owner === "player") {
+          if (G.isMine(target)) {
             G.setActive(target.id);
             view = "village";
           } else observeVillage(target.id);
@@ -840,7 +843,7 @@
       .forEach(
         (b) =>
           (b.onclick = () =>
-            reportModal(G.state.reports[Number(b.dataset.reportIndex)])),
+            reportModal(visibleReports()[Number(b.dataset.reportIndex)])),
       );
     document.querySelectorAll(".report-delete").forEach(
       (b) =>
@@ -1275,16 +1278,19 @@
     const login = $("#loginScreen"), shell = $("#gameShell");
     if (!session) { login?.classList.remove("d-none"); shell?.classList.add("d-none"); return false; }
     login?.classList.add("d-none"); shell?.classList.remove("d-none");
-    document.querySelectorAll(".admin-link").forEach(el=>el.classList.toggle("d-none", !isAdmin()));
-    const badge=$("#sessionRole"); if(badge) badge.textContent=isAdmin()?"Administrador":"Jogador";
+    document.querySelectorAll(".admin-link, [data-view=\"settings\"]").forEach(el=>el.classList.toggle("d-none", !isAdmin()));
+    const badge=$("#sessionRole"); if(badge) badge.textContent=isAdmin()?`Administrador · ${session.username}`:`Jogador · ${session.username}`;
     return true;
   }
   $("#loginForm").onsubmit = (e) => {
     e.preventDefault(); const f=new FormData(e.currentTarget);
     if (!window.RDGAuth.login(f.get("username"),f.get("password"))) { $("#loginError").textContent="Usuário ou senha inválidos."; $("#loginError").classList.remove("d-none"); return; }
-    $("#loginError").classList.add("d-none"); applySessionUI(); view="village"; render(true);
+    $("#loginError").classList.add("d-none"); G.ensureCurrentPlayer(); applySessionUI(); view="village"; render(true);
   };
+  $("#showRegisterBtn").onclick=()=>{$("#loginForm").classList.add("d-none");$("#registerForm").classList.remove("d-none");};
+  $("#backLoginBtn").onclick=()=>{$("#registerForm").classList.add("d-none");$("#loginForm").classList.remove("d-none");};
+  $("#registerForm").onsubmit=(e)=>{ e.preventDefault(); const f=new FormData(e.currentTarget), r=window.RDGAuth.register(f.get("username"),f.get("password")); if(!r.ok){$("#registerError").textContent=r.error;$("#registerError").classList.remove("d-none");return;} window.RDGAuth.login(f.get("username"),f.get("password")); G.ensureCurrentPlayer(); applySessionUI(); view="village"; render(true); };
   $("#logoutBtn").onclick=()=>window.RDGAuth.logout();
-  document.querySelectorAll('[data-view="admin"]').forEach(b=>b.addEventListener("click",e=>{ if(!isAdmin()){e.preventDefault();e.stopImmediatePropagation();requireAdmin();} },true));
-  if (applySessionUI()) render(true);
+  document.querySelectorAll('[data-view="admin"], [data-view="settings"]').forEach(b=>b.addEventListener("click",e=>{ if(!isAdmin()){e.preventDefault();e.stopImmediatePropagation();requireAdmin();} },true));
+  if (applySessionUI()) { G.ensureCurrentPlayer(); render(true); }
 })();
