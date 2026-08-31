@@ -858,6 +858,7 @@
       G.renameVillage(G.active().id, new FormData(e.target).get("name"));
     });
     if (view === "settings") {
+      if (!requireAdmin()) return render(true);
       const settingsTabs = document.querySelectorAll(".settings-tab-btn");
       const settingsPanes = document.querySelectorAll(".settings-pane");
       const openSettingsTab = (key) => {
@@ -1282,9 +1283,17 @@
   $("#loginForm").onsubmit = (e) => {
     e.preventDefault(); const f=new FormData(e.currentTarget);
     if (!window.RDGAuth.login(f.get("username"),f.get("password"))) { $("#loginError").textContent="Usuário ou senha inválidos."; $("#loginError").classList.remove("d-none"); return; }
-    $("#loginError").classList.add("d-none"); applySessionUI(); view="village"; render(true);
+    location.reload();
+  };
+  $("#showRegisterBtn").onclick=()=>{ $("#loginScreen").classList.add("d-none"); $("#registerScreen").classList.remove("d-none"); };
+  $("#backLoginBtn").onclick=()=>{ $("#registerScreen").classList.add("d-none"); $("#loginScreen").classList.remove("d-none"); };
+  $("#registerForm").onsubmit=(e)=>{
+    e.preventDefault(); const f=new FormData(e.currentTarget), err=$("#registerError");
+    if(f.get("password")!==f.get("confirm")){ err.textContent="As senhas não coincidem."; err.classList.remove("d-none"); return; }
+    try { window.RDGAuth.register(f.get("username"),f.get("password")); location.reload(); }
+    catch(ex){ err.textContent=ex.message||"Não foi possível criar a conta."; err.classList.remove("d-none"); }
   };
   $("#logoutBtn").onclick=()=>window.RDGAuth.logout();
-  document.querySelectorAll('[data-view="admin"]').forEach(b=>b.addEventListener("click",e=>{ if(!isAdmin()){e.preventDefault();e.stopImmediatePropagation();requireAdmin();} },true));
+  document.querySelectorAll('[data-view="admin"], [data-view="settings"]').forEach(b=>b.addEventListener("click",e=>{ if(!isAdmin()){e.preventDefault();e.stopImmediatePropagation();requireAdmin();} },true));
   if (applySessionUI()) render(true);
 })();

@@ -1,18 +1,24 @@
 (function () {
   const cfg = window.GAME_CONFIG;
+  const storageKey = () => {
+    const session = window.RDGAuth?.current();
+    // O administrador preserva o save legado/mundo de testes. Cada conta de jogador possui progresso isolado.
+    if (!session || session.role === "admin") return cfg.saveKey;
+    return `${cfg.saveKey}__${window.RDGAuth.saveSuffix()}`;
+  };
   window.GameStorage = {
     save(state) {
-      localStorage.setItem(cfg.saveKey, JSON.stringify(state));
+      localStorage.setItem(storageKey(), JSON.stringify(state));
     },
     load() {
       try {
-        return JSON.parse(localStorage.getItem(cfg.saveKey));
+        return JSON.parse(localStorage.getItem(storageKey()));
       } catch (_) {
         return null;
       }
     },
     clear() {
-      localStorage.removeItem(cfg.saveKey);
+      localStorage.removeItem(storageKey());
     },
     export(state) {
       const blob = new Blob([JSON.stringify(state, null, 2)], {
