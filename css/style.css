@@ -167,3 +167,5 @@ body:has(.admin-map-pick-hint) .empty-map-cell{cursor:crosshair;outline:1px dash
 
 /* Mundo compartilhado: aldeias de outros jogadores */
 .village-tile.other-player{outline:2px solid #4f8cff;box-shadow:0 0 0 1px rgba(79,140,255,.25) inset}
+.villages-overview{max-height:72vh;overflow:auto}.villages-overview th{position:sticky;top:0;z-index:2}.village-troop-summary{max-width:240px;white-space:normal}.bulk-village-list .form-check{padding:.35rem .5rem .35rem 2rem;border-bottom:1px solid rgba(255,255,255,.06)}
+@media(max-width:767px){.villages-overview{max-height:none}.villages-overview table{min-width:980px}.game-header .resource-bar{width:100%;overflow-x:auto;flex-wrap:nowrap}.admin-tabs{display:flex;overflow-x:auto;gap:.35rem}.admin-tabs .btn{white-space:nowrap}}

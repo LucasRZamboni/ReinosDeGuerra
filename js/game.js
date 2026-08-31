@@ -941,8 +941,29 @@
     S.save(state); return mine[0]||null;
   }
 
+  function withVillage(villageId, fn) {
+    const old = state.activeVillageId;
+    const v = state.villages[villageId];
+    if (!v || !isMine(v)) return notify("Aldeia inválida ou sem permissão.", "warning");
+    state.activeVillageId = villageId;
+    try { return fn(); } finally { state.activeVillageId = old; S.save(state); }
+  }
+  function buildAt(villageId, building) { return withVillage(villageId, () => build(building)); }
+  function recruitAt(villageId, unit, amount) { return withVillage(villageId, () => recruit(unit, amount)); }
+  function adminBulkUpdate(ids, data) {
+    if (!isAdmin()) return notify("Acesso restrito ao administrador.", "danger");
+    const list = [...new Set(ids || [])].map(id => state.villages[id]).filter(Boolean);
+    list.forEach(v => {
+      Object.keys(C.buildings).forEach(k => { if (data.buildings?.[k] !== undefined) v.buildings[k] = Math.max(0, Math.min(C.buildings[k].maxLevel, Math.floor(Number(data.buildings[k]) || 0))); });
+      Object.keys(C.units).forEach(k => { if (data.units?.[k] !== undefined) v.units[k] = Math.max(0, Math.floor(Number(data.units[k]) || 0)); });
+      ["wood","clay","iron"].forEach(r => { if (data.resources?.[r] !== undefined) { const raw=data.resources[r]; const value = typeof raw === "string" && raw.endsWith("%") ? cap(v)*(Number(raw.slice(0,-1))/100) : Number(raw); v.resources[r]=Math.max(0,Math.min(cap(v),value||0)); } });
+      if (data.bonusType !== undefined && C.bonusTypes[data.bonusType]) v.bonusType=data.bonusType;
+    });
+    saveRender(); notify(`Alterações aplicadas a ${list.length} aldeia(s).`);
+  }
+
   window.Game = {
-    ensureCurrentPlayer, isMine, currentPlayerId,
+    ensureCurrentPlayer, isMine, currentPlayerId, buildAt, recruitAt, adminBulkUpdate,
     get state() {
       return state;
     },
