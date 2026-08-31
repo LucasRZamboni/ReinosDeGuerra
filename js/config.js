@@ -48,6 +48,7 @@ window.GAME_CONFIG = {
   unlimitedBuildQueue: false,
   enemiesEnabled: false,
   enemyCount: 0,
+  barbarianSpawn: { enabled: true, intervalMinutes: 30, maxNewVillages: 20, perCycle: 1, bonusChance: 15 },
   adminPresets: {
     defenseTroops: { spear: 5000, sword: 5000, archer: 5000,scout: 500, heavy: 1000, catapult: 500 },
     attackTroops: { axe: 7500, light: 3000,scout: 250, ram: 300 },

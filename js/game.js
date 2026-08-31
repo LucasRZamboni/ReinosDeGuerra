@@ -30,6 +30,7 @@
       unlimitedBuildQueue: C.unlimitedBuildQueue ?? false,
       enemiesEnabled: C.enemiesEnabled ?? false,
       enemyCount: C.enemyCount ?? 0,
+      barbarianSpawn: clone(C.barbarianSpawn || {enabled:true,intervalMinutes:30,maxNewVillages:20,perCycle:1,bonusChance:15}),
       initialBuildingLevels: clone(C.initialBuildingLevels),
       freeStartingPointLevels: clone(C.freeStartingPointLevels),
       bonus: bonusDefaults(),
@@ -42,6 +43,7 @@
       ...options,
       production: { ...d.production, ...(options.production || {}) },
       bonus: { ...d.bonus, ...(options.bonus || {}) },
+      barbarianSpawn: { ...d.barbarianSpawn, ...(options.barbarianSpawn || {}) },
       initialBuildingLevels: { ...d.initialBuildingLevels, ...(options.initialBuildingLevels || {}) },
       freeStartingPointLevels: { ...d.freeStartingPointLevels, ...(options.freeStartingPointLevels || {}) },
     };
@@ -641,12 +643,14 @@
               : "Os batedores defensores impediram a espionagem.",
           }
         : null;
-    if (spied)
-      Object.assign(intel, {
-        resources: clone(target.resources),
-        buildings: clone(target.buildings),
-        units: clone(target.units),
-      });
+    if (spied) {
+      const scoutAdvantage = Math.max(1, remainingScouts - defenderScouts);
+      intel.level = scoutAdvantage >= 100 ? 3 : scoutAdvantage >= 25 ? 2 : 1;
+      intel.reason = intel.level === 3 ? "Espionagem completa: recursos, edifícios e tropas revelados." : intel.level === 2 ? "Espionagem avançada: recursos e edifícios revelados." : "Espionagem básica: recursos revelados.";
+      intel.resources = clone(target.resources);
+      if (intel.level >= 2) intel.buildings = clone(target.buildings);
+      if (intel.level >= 3) intel.units = clone(target.units);
+    }
     // Relatórios de batalha pertencem ao jogador: não registrar combates
     // entre inimigos/bárbaros que não envolvam nenhuma aldeia do jogador.
     const reportRecipients = [...new Set([from.owner === "player" ? from.ownerId : null, target.owner === "player" ? target.ownerId : null].filter(Boolean))];
@@ -694,7 +698,7 @@
     // Aldeias não-jogadoras recebem recursos pelo mesmo sistema de produção do jogador.
     // A IA não ganha mais recursos, edifícios ou tropas gratuitamente a cada ciclo.
     Object.values(state.villages).filter((v) => v.owner !== "player").forEach((v) => {
-      const choices = ["lumber", "claypit", "mine", "farm", "storage", "keep", "barracks", "wall"];
+      const profile=v.aiProfile||"economic"; const choices = profile==="defensive" ? ["wall","farm","storage","barracks","keep","lumber","claypit","mine"] : profile==="offensive" ? ["barracks","stable","smithy","farm","storage","keep","lumber","claypit","mine"] : profile==="expansive" ? ["academy","farm","storage","barracks","stable","keep","lumber","claypit","mine"] : ["lumber","claypit","mine","farm","storage","keep","market","barracks"];
       if (!(v.buildQueue || []).length && Math.random() < 0.28 * d.aiGrowth) {
         const candidates = choices.filter(k => C.buildings[k] && (v.buildings[k] || 0) < C.buildings[k].maxLevel && meets(v, C.buildings[k].requires) && canPay(v, buildingCost(k, v)));
         if (candidates.length) {
@@ -713,7 +717,7 @@
     });
     if (state.settings.enemiesEnabled) {
       Object.values(state.villages).filter(v => v.owner === "enemy").forEach(from => {
-        if (Math.random() > 0.20 * d.aiGrowth) return;
+        const profile=from.aiProfile||"offensive"; const attackRate=profile==="offensive"?.32:profile==="expansive"?.22:profile==="defensive"?.08:.12; if (Math.random() > attackRate * d.aiGrowth) return;
         const targets = Object.values(state.villages).filter(v => v.id !== from.id && v.owner !== "enemy");
         if (!targets.length) return;
         targets.sort((a,b) => Math.hypot(a.x-from.x,a.y-from.y)-Math.hypot(b.x-from.x,b.y-from.y));
@@ -747,6 +751,15 @@
       notify("Vitória! O objetivo deste mundo foi alcançado.");
       window.dispatchEvent(new CustomEvent("game-objective", { detail: { key: state.settings.objective, name: o.name } }));
     }
+  }
+  function spawnBarbarians(now) {
+    const cfg=state.settings.barbarianSpawn||{}; if(cfg.enabled===false) return;
+    const interval=Math.max(1,Number(cfg.intervalMinutes)||30)*60000;
+    if(now-(state.lastBarbarianSpawn||state.createdAt||now)<interval) return;
+    const spawned=Number(state.spawnedBarbarians||0), max=Math.max(0,Number(cfg.maxNewVillages)||20); if(spawned>=max) return;
+    let amount=Math.min(Math.max(1,Number(cfg.perCycle)||1),max-spawned), tries=0;
+    while(amount>0 && tries++<500){ const x=rand(0,C.mapWidth-1),y=rand(0,C.mapHeight-1); if(state.villages[id(x,y)]) continue; const v=makeVillage(x,y,null,state.settings); if(Math.random()*100 < (Number(cfg.bonusChance)||15)) v.bonusType=rollBonus(null,{...state.settings.bonus,chance:100}); state.villages[v.id]=v; amount--; state.spawnedBarbarians=(state.spawnedBarbarians||0)+1; }
+    state.lastBarbarianSpawn=now;
   }
   function process(now, dt) {
     let changed = false;
@@ -829,7 +842,7 @@
     const free = Object.values(state.villages).filter(v => !v.owner);
     while (enemies.length < desired && free.length) {
       const v = free.splice(rand(0, free.length - 1), 1)[0];
-      v.owner = "enemy"; v.name = `Inimigo ${enemies.length + 1}`;
+      v.owner = "enemy"; v.name = `Inimigo ${enemies.length + 1}`; v.aiProfile = ["offensive","defensive","economic","expansive"][enemies.length%4];
       v.units.spear = Math.max(v.units.spear || 0, 80); v.units.axe = Math.max(v.units.axe || 0, 120);
       enemies.push(v);
     }
@@ -962,8 +975,14 @@
     saveRender(); notify(`Alterações aplicadas a ${list.length} aldeia(s).`);
   }
 
+
+  function bulkBuild(ids, building){ let ok=0; (ids||[]).forEach(vid=>{ const v=state.villages[vid]; if(!v||!isMine(v)||!C.buildings[building])return; const b=C.buildings[building]; if((v.buildings[building]||0)>=b.maxLevel||!meets(v,b.requires))return; const c=buildingCost(building,v); if(!canPay(v,c))return; const queueAllowed=!v.buildQueue.length||state.settings.unlimitedBuildQueue||(v.buildings.keep||0)>=10; if(!queueAllowed)return; pay(v,c); const start=v.buildQueue.length?v.buildQueue[v.buildQueue.length-1].end:Date.now(); v.buildQueue.push({building,start,end:start+(buildingTime(building,v)*1000)/state.speed}); ok++; }); saveRender(); notify(`Construção adicionada em ${ok} aldeia(s).`); }
+  function bulkRecruitPreset(ids,preset){ let ok=0; (ids||[]).forEach(vid=>{ const v=state.villages[vid]; if(!v||!isMine(v))return; Object.entries(preset||{}).forEach(([k,w])=>{ if(!C.units[k]||w<=0||!meets(v,C.units[k].requires||{}))return; let max=Math.floor((popCap(v)-population(v))/C.units[k].population); for(const r of ["wood","clay","iron"]) max=Math.min(max,Math.floor(v.resources[r]/Math.max(1,unitCost(k,v)[r]))); const n=Math.max(0,Math.min(Math.floor(w),max)); if(n){ recruitAt(v.id,k,n); ok++; } }); }); notify(`Treinos adicionados (${ok} filas).`); }
+  function adminBulkFinish(ids,what="all"){ if(!isAdmin())return; (ids||[]).forEach(vid=>{const v=state.villages[vid];if(!v)return;if(what!=="training")while(v.buildQueue?.length)adminFinishBuild(vid,0);if(what!=="build")while(v.trainQueue?.length)adminFinishTraining(vid,0);}); saveRender(); }
+  function adminBulkOwner(ids,ownerId){ if(!isAdmin())return; (ids||[]).forEach(vid=>{const v=state.villages[vid];if(!v)return;if(ownerId==="barbarian"){v.owner=null;v.ownerId=null;}else if(ownerId==="enemy"){v.owner="enemy";v.ownerId=null;}else{v.owner="player";v.ownerId=ownerId;}});saveRender();notify("Proprietário atualizado em massa.");}
+
   window.Game = {
-    ensureCurrentPlayer, isMine, currentPlayerId, buildAt, recruitAt, adminBulkUpdate,
+    ensureCurrentPlayer, isMine, currentPlayerId, buildAt, recruitAt, adminBulkUpdate, bulkBuild, bulkRecruitPreset, adminBulkFinish, adminBulkOwner,
     get state() {
       return state;
     },

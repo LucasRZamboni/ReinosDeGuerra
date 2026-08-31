@@ -169,3 +169,15 @@ body:has(.admin-map-pick-hint) .empty-map-cell{cursor:crosshair;outline:1px dash
 .village-tile.other-player{outline:2px solid #4f8cff;box-shadow:0 0 0 1px rgba(79,140,255,.25) inset}
 .villages-overview{max-height:72vh;overflow:auto}.villages-overview th{position:sticky;top:0;z-index:2}.village-troop-summary{max-width:240px;white-space:normal}.bulk-village-list .form-check{padding:.35rem .5rem .35rem 2rem;border-bottom:1px solid rgba(255,255,255,.06)}
 @media(max-width:767px){.villages-overview{max-height:none}.villages-overview table{min-width:980px}.game-header .resource-bar{width:100%;overflow-x:auto;flex-wrap:nowrap}.admin-tabs{display:flex;overflow-x:auto;gap:.35rem}.admin-tabs .btn{white-space:nowrap}}
+
+/* Gestão de aldeias responsiva */
+.village-management-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:.75rem}
+.village-manage-card{min-width:0}.village-bulk-toolbar label{min-width:180px;font-size:.8rem}.commands-table{min-width:760px}
+@media(max-width:767px){
+  .village-management-grid{grid-template-columns:1fr}.village-manage-card{padding:.8rem!important}
+  .village-bulk-toolbar .d-flex>*{flex:1 1 46%;min-width:0}.village-bulk-toolbar label{flex-basis:100%}
+  .game-nav{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:.25rem}.game-nav .nav-link{font-size:.86rem;padding:.55rem .5rem;white-space:normal}
+  .modal-dialog{margin:.4rem}.modal-body{max-height:76vh;overflow:auto}.table-responsive{-webkit-overflow-scrolling:touch}
+  #view-admin .row>*{min-width:0}.admin-tabs{position:relative}.admin-section .btn,.admin-tab-pane .btn{white-space:normal}
+  .army-compact .row>[class*=col-]{width:100%}.unit-card{min-width:0}
+}
