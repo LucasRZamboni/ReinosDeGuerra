@@ -86,6 +86,15 @@
   }
   function header() {
     const v = G.active();
+    if (!v) {
+      $("#villageName").textContent = isAdmin() ? "Administrador sem aldeias" : "Reino derrotado";
+      $("#villageSelect").innerHTML = `<option>${isAdmin()?"Nenhuma aldeia do Admin":"Sem aldeias"}</option>`;
+      $("#sidebarRenameVillage").innerHTML = "";
+      $("#resourceBar").innerHTML = `<span class="resource-pill">★ <strong>0</strong></span><span class="resource-pill">♜ <strong>0 aldeias</strong></span>`;
+      $("#villageMeta").textContent = isAdmin() ? "Admin: 0 pontos / 0 aldeias" : "0 pontos / 0 aldeias";
+      if ($("#speedDisplay")) $("#speedDisplay").textContent = G.state.speed + "×";
+      return;
+    }
     updateLive();
     $("#villageName").textContent = v.name;
     $("#villageSelect").innerHTML = G.owned()
@@ -99,8 +108,9 @@
     $("#pauseBtn").textContent = G.state.paused ? "Continuar" : "Pausar";
   }
   function updateLive() {
-    const v = G.active(),
-      cap = G.cap(v);
+    const v = G.active();
+    if (!v) return;
+    const cap = G.cap(v);
     $("#resourceBar").innerHTML =
       `<span class="resource-pill">🪵 <strong>${fmt(v.resources.wood)}/${fmt(cap)}</strong></span><span class="resource-pill">🧱 <strong>${fmt(v.resources.clay)}/${fmt(cap)}</strong></span><span class="resource-pill">⛓ <strong>${fmt(v.resources.iron)}/${fmt(cap)}</strong></span><span class="resource-pill">👥 <strong>${G.population(v)}/${G.popCap(v)}</strong></span><span class="resource-pill">★ <strong>${fmt(G.points(v))}</strong></span>`;
     const mine = G.owned(), totalPoints = mine.reduce((n,x)=>n+G.points(x),0);
@@ -1243,8 +1253,18 @@
           focused.closest("#view-admin") ||
           focused.closest("#attackModal"));
     header();
+    const mine = G.owned();
+    if (!mine.length && !isAdmin()) {
+      $("#view-village").innerHTML = `<section class="panel p-4 text-center"><div class="eyebrow">Reino derrotado</div><h2>Você perdeu todas as aldeias</h2><p class="text-secondary">Escolha no aviso se deseja continuar neste mesmo mundo com uma nova aldeia ou começar um mundo novo.</p></section>`;
+      document.querySelectorAll(".game-view").forEach(e=>e.classList.add("d-none"));
+      $("#view-village").classList.remove("d-none");
+      const dm=bootstrap.Modal.getOrCreateInstance($("#defeatModal")); dm.show();
+      return;
+    }
+    if (!G.active() && isAdmin() && ["village","army"].includes(view)) {
+      $("#view-"+view).innerHTML = `<section class="panel p-4 text-center"><div class="eyebrow">Administração do mundo</div><h2>Nenhuma aldeia pertencente ao Admin</h2><p class="text-secondary">O Administrador está com 0 pontos e 0 aldeias. Use Administração → Criar aldeia para atribuir uma aldeia ao Admin quando desejar.</p></section>`;
+    } else if (!editing) renderers[view]();
     if (editing) return;
-    renderers[view]();
     document
       .querySelectorAll(".game-view")
       .forEach((e) => e.classList.add("d-none"));
@@ -1254,6 +1274,8 @@
       .forEach((b) => b.classList.toggle("active", b.dataset.view === view));
     bindDynamic();
   }
+  $("#defeatRestartSame")?.addEventListener("click",()=>{ bootstrap.Modal.getOrCreateInstance($("#defeatModal")).hide(); G.restartCurrentPlayer(); view="village"; render(true); });
+  $("#defeatNewWorld")?.addEventListener("click",async()=>{ bootstrap.Modal.getOrCreateInstance($("#defeatModal")).hide(); if(await modalConfirm("Apagar o mundo atual e começar um novo mundo do zero?")){ G.reset({...G.state.settings}); G.ensureCurrentPlayer(); view="village"; render(true); } else bootstrap.Modal.getOrCreateInstance($("#defeatModal")).show(); });
   document.querySelectorAll(".game-nav .nav-link").forEach(
     (b) =>
       (b.onclick = () => {

@@ -54,8 +54,8 @@ window.GAME_CONFIG = {
   enemyRules: {
     canAttackPlayers: true,
     canAttackBarbarians: true,
-    canAttackOtherEnemies: false,
-    canConquerOtherEnemies: false,
+    canAttackOtherEnemies: true,
+    canConquerOtherEnemies: true,
     canConquer: true,
     canConquerPlayers: true,
     canConquerBarbarians: true,

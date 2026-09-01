@@ -1035,19 +1035,37 @@
     const sess=session(); if(!sess) return null;
     const pid=currentPlayerId();
     state.players = state.players || {};
-    state.players[pid] = { id:pid, username:sess.username, role:sess.role, lastSeen:Date.now() };
+    const previousPlayer = state.players[pid] || null;
+    state.players[pid] = { ...(previousPlayer||{}), id:pid, username:sess.username, role:sess.role, lastSeen:Date.now() };
     let mine=Object.values(state.villages).filter(v=>v.owner==="player"&&v.ownerId===pid);
-    if(!mine.length && sess.role==="player") {
+    if (mine.length) state.players[pid].hasStarted = true;
+    // Jogador comum recebe aldeia somente na primeira entrada. Se perdeu todas, permanece derrotado
+    // até escolher explicitamente reiniciar. O Admin nunca recebe aldeia automaticamente.
+    if(!mine.length && sess.role==="player" && !state.players[pid].hasStarted) {
       const occupied=new Set(Object.keys(state.villages)); let spots=[];
       for(let y=mapMinY();y<=mapMaxY();y++) for(let x=mapMinX();x<=mapMaxX();x++) if(!occupied.has(id(x,y))) spots.push([x,y]);
       if(!spots.length) return notify("Não há espaço livre para uma nova aldeia.","danger");
       const [x,y]=spots[rand(0,spots.length-1)]; const v=makeVillage(x,y,"player",state.settings);
       v.ownerId=pid; v.name=`Aldeia de ${sess.username}`; v.buildings={...Object.fromEntries(Object.keys(C.buildings).map(k=>[k,0])),...clone(state.settings.initialBuildingLevels)};
-      state.villages[v.id]=v; mine=[v];
+      state.villages[v.id]=v; mine=[v]; state.players[pid].hasStarted=true;
       state.reports.unshift({id:`info-${Date.now()}`,time:Date.now(),type:"info",playerId:pid,title:"Bem-vindo ao mundo",text:`Sua aldeia inicial foi fundada em ${x}|${y}.`});
     }
     if(mine.length && (!state.villages[state.activeVillageId] || (!isAdmin() && !isMine(state.villages[state.activeVillageId])))) state.activeVillageId=mine[0].id;
     S.save(state); return mine[0]||null;
+  }
+
+  function restartCurrentPlayer() {
+    const sess=session(); if(!sess || sess.role!=="player") return null;
+    const pid=currentPlayerId();
+    const occupied=new Set(Object.keys(state.villages)); let spots=[];
+    for(let y=mapMinY();y<=mapMaxY();y++) for(let x=mapMinX();x<=mapMaxX();x++) if(!occupied.has(id(x,y))) spots.push([x,y]);
+    if(!spots.length){ notify("Não há espaço livre para reiniciar neste mundo.","danger"); return null; }
+    const [x,y]=spots[rand(0,spots.length-1)], v=makeVillage(x,y,"player",state.settings);
+    v.ownerId=pid; v.name=`Aldeia de ${sess.username}`;
+    v.buildings={...Object.fromEntries(Object.keys(C.buildings).map(k=>[k,0])),...clone(state.settings.initialBuildingLevels)};
+    state.villages[v.id]=v; state.activeVillageId=v.id;
+    state.players=state.players||{}; state.players[pid]={...(state.players[pid]||{}),id:pid,username:sess.username,role:sess.role,hasStarted:true,lastSeen:Date.now()};
+    S.save(state); saveRender(); notify(`Nova aldeia fundada em ${x}|${y}.`,"success"); return v;
   }
 
   function withVillage(villageId, fn) {
@@ -1078,7 +1096,7 @@
   function adminBulkOwner(ids,ownerId){ if(!isAdmin())return; (ids||[]).forEach(vid=>{const v=state.villages[vid];if(!v)return;if(ownerId==="barbarian"){v.owner=null;v.ownerId=null;}else if(String(ownerId).startsWith("ai:")){v.owner="enemy";v.ownerId=null;v.aiId=String(ownerId).slice(3); const src=Object.values(state.villages).find(x=>x.owner==="enemy"&&x.aiId===v.aiId); v.aiProfile=src?.aiProfile||v.aiProfile||"expansive";}else if(ownerId==="enemy"){v.owner="enemy";v.ownerId=null;v.aiId=v.aiId||`ai-${v.id}`;}else{v.owner="player";v.ownerId=ownerId;v.aiId=null;}});saveRender();notify("Proprietário atualizado em massa.");}
 
   window.Game = {
-    ensureCurrentPlayer, isMine, currentPlayerId, buildingPopulation, buildAt, recruitAt, adminBulkUpdate, bulkBuild, bulkRecruitPreset, adminBulkFinish, adminBulkOwner,
+    ensureCurrentPlayer, restartCurrentPlayer, isMine, currentPlayerId, buildingPopulation, buildAt, recruitAt, adminBulkUpdate, bulkBuild, bulkRecruitPreset, adminBulkFinish, adminBulkOwner,
     get state() {
       return state;
     },
