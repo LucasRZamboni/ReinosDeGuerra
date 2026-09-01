@@ -30,7 +30,10 @@
       startingVillagePoints: C.startingVillagePoints,
       worldName: C.worldName,
       mapFrameSize: C.defaultMapFrameSize,
-      freeVillagesTrainTroops: C.freeVillagesTrainTroops ?? true,
+      freeVillagesTrainTroops: C.freeVillagesTrainTroops ?? false,
+      freeVillageRules: clone(C.freeVillageRules || {barbariansBuild:true,barbariansRecruit:false,bonusBuild:true,bonusRecruit:false}),
+      minimumAttackPopulation: C.minimumAttackPopulation || 10,
+      villageMilestones: clone(C.villageMilestones || {enabled:false,pointRewards:[],progressTroopRewards:[]}),
       unlimitedBuildQueue: C.unlimitedBuildQueue ?? false,
       enemiesEnabled: C.enemiesEnabled ?? false,
       enemyCount: C.enemyCount ?? 0,
@@ -94,9 +97,7 @@
             iron: rand(250, 1000),
           },
       buildings,
-      units: player
-        ? { ...emptyUnits(), spear: 12 }
-        : { ...emptyUnits(), spear: rand(6, 30), sword: rand(0, 15) },
+      units: emptyUnits(),
       buildQueue: [],
       trainQueue: [],
     };
@@ -549,6 +550,9 @@
     );
     if (!Object.keys(sent).length)
       return notify("Escolha pelo menos uma unidade.", "warning");
+    const sentPopulation = Object.entries(sent).reduce((sum,[k,n])=>sum+n*(C.units[k]?.population||0),0);
+    const minimumPopulation = Math.max(1, Number(state.settings.minimumAttackPopulation ?? C.minimumAttackPopulation ?? 10));
+    if (sentPopulation < minimumPopulation) return notify(`Ataques exigem no mínimo ${minimumPopulation} de população militar. Este comando possui ${sentPopulation}.`, "warning");
     if (Object.entries(sent).some(([k, n]) => from.units[k] < n))
       return notify("Quantidade inválida.", "danger");
     launch(from, target, sent, catapultTarget);
@@ -565,7 +569,7 @@
   }
   function combatKey(v){ return v?.owner==="enemy" ? (v.aiId||`ai-${v.id}`) : v?.owner==="player" ? v.ownerId : null; }
   function combatStat(key){ if(!key) return null; return state.combatStats[key]||(state.combatStats[key]={attackerPoints:0,defenderPoints:0,conquests:0}); }
-  function unitLossScore(units){ return Object.entries(units||{}).reduce((n,[k,q])=>n+q*((C.units[k]?.population||1)+(C.units[k]?.attack||0)/50),0); }
+  function unitLossScore(units){ return Object.entries(units||{}).reduce((n,[k,q])=>n+q*(C.units[k]?.population||1),0); }
   function sendSupport(targetId, units) {
     const from=active(), target=state.villages[targetId]; if(!from||!target) return notify("Destino inválido.","warning");
     const clean={}; let any=false; for(const k of Object.keys(C.units)){const n=Math.max(0,Math.floor(Number(units?.[k])||0)); if(n>(from.units[k]||0)) return notify("Tropas insuficientes.","warning"); clean[k]=n; any ||= n>0;}
@@ -770,7 +774,8 @@
     Object.values(state.villages).filter((v) => v.owner !== "player").forEach((v) => {
       const profile=v.aiProfile||"economic"; const choices = profile==="defensive" ? ["wall","farm","storage","barracks","keep","lumber","claypit","mine"] : profile==="offensive" ? ["barracks","stable","smithy","farm","storage","keep","lumber","claypit","mine"] : profile==="expansive" ? ["academy","farm","storage","barracks","stable","keep","lumber","claypit","mine"] : ["lumber","claypit","mine","farm","storage","keep","market","barracks"];
       const erLocal=state.settings.enemyRules||{}, isEnemy=v.owner==="enemy"; if(isEnemy){ const drec=state.aiDiagnostics[v.aiId||v.id]||(state.aiDiagnostics[v.aiId||v.id]={}); drec.lastSeen=now; drec.status=(v.buildQueue||[]).length?"Construindo":(v.trainQueue||[]).length?"Recrutando":population(v)>=popCap(v)?"Fazenda cheia":"Economia/evolução"; drec.villageId=v.id; }
-      if ((!isEnemy || erLocal.canBuild!==false) && !(v.buildQueue || []).length && Math.random() < (isEnemy ? 0.62 : 0.28) * d.aiGrowth) {
+      const freeRules=state.settings.freeVillageRules||{}; const isBonus=!v.owner&&v.bonusType&&v.bonusType!=="none"; const freeCanBuild=isEnemy ? erLocal.canBuild!==false : (isBonus ? freeRules.bonusBuild!==false : freeRules.barbariansBuild!==false); const freeCanRecruit=isEnemy ? erLocal.canRecruitTroops!==false : (isBonus ? freeRules.bonusRecruit===true : freeRules.barbariansRecruit===true);
+      if (freeCanBuild && !(v.buildQueue || []).length && Math.random() < (isEnemy ? 0.62 : 0.28) * d.aiGrowth) {
         let candidates = choices.filter(k => C.buildings[k] && (v.buildings[k] || 0) < C.buildings[k].maxLevel && meets(v, C.buildings[k].requires) && canPay(v, buildingCost(k, v)));
         // IAs expansionistas/ofensivas perseguem a cadeia que libera Academia/Nobres,
         // em vez de depender de sorte para um dia chegar aos requisitos.
@@ -784,7 +789,7 @@
           v.buildQueue.push({ building: k, start: now, end: now + (buildingTime(k, v) * 1000) / state.speed });
         }
       }
-      if (state.settings.freeVillagesTrainTroops !== false && (!isEnemy || erLocal.canRecruitTroops!==false) && Math.random() < 0.55 * d.aiGrowth) {
+      if (freeCanRecruit && Math.random() < 0.55 * d.aiGrowth) {
         // A IA recompõe o exército com todas as classes que já desbloqueou.
         // Expansivas/Ofensivas também passam a formar Nobres quando a Academia e os recursos permitem.
         const pools = profile === "defensive" ? ["spear","sword","archer","heavy","scout"]
@@ -863,6 +868,15 @@
     state.lastBarbarianSpawn=now;
   }
   function adminSpawnNow(){ if(!isAdmin()) return; const cfg=state.settings.barbarianSpawn||{}; state.lastBarbarianSpawn=Date.now()-(Math.max(1,Number(cfg.intervalMinutes)||30)*60000)-1; const before=state.spawnedBarbarians||0; spawnBarbarians(Date.now()); S.save(state); notify((state.spawnedBarbarians||0)>before?"Ciclo de nascimento executado.":"Nenhuma aldeia foi gerada: verifique limite, ativação e espaços vazios.",(state.spawnedBarbarians||0)>before?"success":"warning"); saveRender(); }
+
+  function villageProgressPercent(v){ const max=Math.max(1,maxVillagePoints()); return Math.max(0,Math.min(100,(points(v)/max)*100)); }
+  function processVillageMilestones(v){
+    const cfg=state.settings.villageMilestones||{}; if(cfg.enabled===false)return false;
+    v.claimedMilestones=v.claimedMilestones||{}; let changed=false;
+    (cfg.pointRewards||[]).forEach((r,i)=>{ const key=`points-${i}-${r.points}`; if(v.claimedMilestones[key]||points(v)<Number(r.points||0))return; const amount=Math.floor(cap(v)*(Number(r.storagePercent||0)/100)); ["wood","clay","iron"].forEach(x=>v.resources[x]=Math.min(cap(v),(v.resources[x]||0)+amount)); v.claimedMilestones[key]=Date.now(); changed=true; if(isMine(v))notify(`Marco de ${r.points} pontos: +${amount.toLocaleString("pt-BR")} de cada recurso.`,"success"); });
+    (cfg.progressTroopRewards||[]).forEach((r,i)=>{ const key=`progress-${i}-${r.percent}`; if(v.claimedMilestones[key]||villageProgressPercent(v)<Number(r.percent||0))return; const desired={...v.units}; Object.entries(r.units||{}).forEach(([k,n])=>desired[k]=(desired[k]||0)+Math.max(0,Number(n)||0)); const fixed=clampAdminUnits(v,desired); v.units=fixed.units; v.claimedMilestones[key]=Date.now(); changed=true; if(isMine(v))notify(`Marco de evolução ${r.percent}%: reforços recebidos.`,"success"); });
+    return changed;
+  }
   function process(now, dt) {
     let changed = false;
     if (!state.paused) {
@@ -918,6 +932,7 @@
           state.movements.push(m);
         }
       });
+      Object.values(state.villages).forEach(v=>{ if(processVillageMilestones(v)) changed=true; });
       spawnBarbarians(now);
       if (
         now - state.lastAiAction >
@@ -1083,7 +1098,9 @@
       state.villages[v.id]=v; mine=[v]; state.players[pid].hasStarted=true;
       state.reports.unshift({id:`info-${Date.now()}`,time:Date.now(),type:"info",playerId:pid,title:"Bem-vindo ao mundo",text:`Sua aldeia inicial foi fundada em ${x}|${y}.`});
     }
-    if(mine.length && (!state.villages[state.activeVillageId] || (!isAdmin() && !isMine(state.villages[state.activeVillageId])))) state.activeVillageId=mine[0].id;
+    const savedActive=state.players[pid].activeVillageId;
+    if(mine.length){ const chosen=mine.find(v=>v.id===savedActive)||mine[0]; state.activeVillageId=chosen.id; state.players[pid].activeVillageId=chosen.id; }
+    else if(sess.role==="admin") state.activeVillageId=null;
     S.save(state); return mine[0]||null;
   }
 
@@ -1139,7 +1156,8 @@
     cap,
     population,
     popCap,
-    prod,
+    prod, villageProgressPercent,
+    prodAtLevel(v,r,lv){ const old=v.buildings[r==="wood"?"lumber":r==="clay"?"claypit":"mine"]||0; const base=(C.productionByLevel[Math.max(0,Math.min(30,lv))]||0)/60; const bonus=v.bonusType===r?bonusValue(v,r):v.bonusType==="resources"?bonusValue(v,"resources"):0; return base*state.settings.production[r]*(1+bonus/100); },
     points, maxVillagePoints, adminSpawnNow, adminMaximizeSpawnCycle,
     buildingPoints,
     buildingCost,
@@ -1166,6 +1184,7 @@
     setActive(i) {
       if (isMine(state.villages[i])) {
         state.activeVillageId = i;
+        const pid=currentPlayerId(); state.players=state.players||{}; state.players[pid]={...(state.players[pid]||{}),activeVillageId:i};
         saveRender();
       }
     },

@@ -31,6 +31,21 @@ window.GAME_CONFIG = {
   startingVillagePoints: 28,
   // Todos os edifícios aparecem aqui para facilitar a personalização da pontuação inicial.
   // O valor indica quantos níveis iniciais são gratuitos para a pontuação.
+  minimumAttackPopulation: 10,
+  freeVillageRules: { barbariansBuild: true, barbariansRecruit: false, bonusBuild: true, bonusRecruit: false },
+  villageMilestones: {
+    enabled: true,
+    pointRewards: [
+      { points: 100, storagePercent: 10 }, { points: 500, storagePercent: 20 },
+      { points: 1500, storagePercent: 30 }, { points: 3000, storagePercent: 40 }
+    ],
+    progressTroopRewards: [
+      { percent: 25, units: { spear: 50, sword: 25 } },
+      { percent: 50, units: { axe: 100, scout: 20 } },
+      { percent: 75, units: { light: 50, ram: 10 } },
+      { percent: 100, units: { noble: 1 } }
+    ]
+  },
   freeStartingPointLevels: {
     keep: 0, barracks: 0, stable: 0, workshop: 0, academy: 0, smithy: 0,
     rally: 0, statue: 0, market: 0, lumber: 0, claypit: 0, mine: 0,
