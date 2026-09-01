@@ -181,3 +181,29 @@ body:has(.admin-map-pick-hint) .empty-map-cell{cursor:crosshair;outline:1px dash
   #view-admin .row>*{min-width:0}.admin-tabs{position:relative}.admin-section .btn,.admin-tab-pane .btn{white-space:normal}
   .army-compact .row>[class*=col-]{width:100%}.unit-card{min-width:0}
 }
+
+/* Repaginação geral 2026: hierarquia visual, leitura rápida e mobile */
+:root{--surface:#141b17;--surface-soft:#1b241f;--surface-raised:#222d27;--radius:10px}
+body{background:radial-gradient(circle at 50% -20%,#26342c 0,#111713 42%,#0d120f 100%);letter-spacing:.005em}
+.game-header{box-shadow:0 8px 28px #0005}
+.panel{border-radius:var(--radius);box-shadow:0 8px 22px #0003;background:linear-gradient(145deg,var(--surface-raised),var(--surface));}
+.section-title{padding:.25rem 0 .7rem;border-bottom:1px solid #ffffff0d;margin-bottom:1rem}
+.section-title h2{margin-bottom:.15rem;font-size:clamp(1.3rem,2vw,1.75rem)}
+.view-subtitle{margin:0;color:var(--muted);font:.8rem system-ui,sans-serif}
+.metric-chip{display:inline-flex;align-items:center;gap:.35rem;padding:.42rem .7rem;border:1px solid #ffffff18;border-radius:999px;background:#ffffff09;font:.78rem system-ui,sans-serif;color:var(--ink)}
+.admin-section{padding:1rem;border:1px solid #ffffff12;border-radius:8px;background:#0d130f66}
+.admin-world-counts .panel{box-shadow:none;background:#ffffff07}.admin-world-counts strong{font-size:1.15rem;color:var(--gold)}
+.admin-tabs{padding:.45rem!important;border-radius:10px}.admin-tabs .btn{border-radius:7px}.admin-tabs .btn.active{background:var(--gold);color:#17120a}
+.form-control,.form-select{border-radius:7px}.btn{border-radius:7px}
+.commands-table td small{display:block;color:var(--muted);font-size:.68rem;margin-top:.15rem}
+.table-dark{--bs-table-bg:transparent;--bs-table-striped-bg:#ffffff05;--bs-table-hover-bg:#ffffff09}.table>:not(caption)>*>*{border-bottom-color:#ffffff0d}
+@media(max-width:767px){
+ body{font-size:.94rem}.container-fluid{padding-left:.65rem;padding-right:.65rem}.panel{border-radius:8px}
+ .section-title{gap:.55rem;margin-bottom:.7rem}.section-title h2{font-size:1.35rem}
+ .game-nav{position:sticky;top:0;z-index:20;background:#111714f2;padding:.35rem;border-bottom:1px solid var(--line)}
+ .game-nav .nav-link{min-height:44px;display:flex;align-items:center;justify-content:center;border-radius:7px}
+ .admin-world-counts .col-6{padding:.2rem}.admin-world-counts .panel{min-height:66px;display:flex;flex-direction:column;justify-content:center}
+ .commands-table{min-width:680px}.commands-table td,.commands-table th{padding:.55rem .45rem;font-size:.78rem}
+ .admin-tabs{position:sticky;top:0;z-index:18;background:#111714f5;scrollbar-width:none}.admin-tabs::-webkit-scrollbar{display:none}
+ .modal-content{border-radius:10px}.modal-header{position:sticky;top:0;z-index:2;background:#171f1a}
+}

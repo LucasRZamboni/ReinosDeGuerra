@@ -257,7 +257,7 @@
     ) +
     (v.trainQueue || []).reduce(
       (n, q) =>
-        n + (C.units[q.unit] ? q.amount * C.units[q.unit].population : 0),
+        n + (C.units[q.unit] ? Math.max(0,(q.amount||0)-(q.trained||0)) * C.units[q.unit].population : 0),
       0,
     );
   function prod(v, r) {
@@ -648,7 +648,9 @@
           target.name = `Fortaleza ${target.x}|${target.y}`;
           survivors.noble--;
           conquered = true;
-          notify(`${target.name} foi conquistada!`);
+          // Só avisa o usuário quando a aldeia conquistada era realmente dele.
+          if (defenderOwnerBefore === "player" && defenderOwnerIdBefore === currentPlayerId())
+            notify(`${target.name} foi conquistada pelo inimigo!`, "danger");
         }
       }
     }
@@ -674,7 +676,7 @@
     }
     // Relatórios de batalha pertencem ao jogador: não registrar combates
     // entre inimigos/bárbaros que não envolvam nenhuma aldeia do jogador.
-    const reportRecipients = [...new Set([from.owner === "player" ? from.ownerId : null, target.owner === "player" ? target.ownerId : null].filter(Boolean))];
+    const reportRecipients = [...new Set([from.owner === "player" ? from.ownerId : null, defenderOwnerBefore === "player" ? defenderOwnerIdBefore : null].filter(Boolean))];
     const playerInvolved = reportRecipients.length > 0;
     if (playerInvolved) state.reports.unshift({
       recipients: reportRecipients,
@@ -721,10 +723,16 @@
     Object.values(state.villages).filter((v) => v.owner !== "player").forEach((v) => {
       const profile=v.aiProfile||"economic"; const choices = profile==="defensive" ? ["wall","farm","storage","barracks","keep","lumber","claypit","mine"] : profile==="offensive" ? ["barracks","stable","smithy","farm","storage","keep","lumber","claypit","mine"] : profile==="expansive" ? ["academy","farm","storage","barracks","stable","keep","lumber","claypit","mine"] : ["lumber","claypit","mine","farm","storage","keep","market","barracks"];
       const erLocal=state.settings.enemyRules||{}, isEnemy=v.owner==="enemy";
-      if ((!isEnemy || erLocal.canBuild!==false) && !(v.buildQueue || []).length && Math.random() < 0.28 * d.aiGrowth) {
-        const candidates = choices.filter(k => C.buildings[k] && (v.buildings[k] || 0) < C.buildings[k].maxLevel && meets(v, C.buildings[k].requires) && canPay(v, buildingCost(k, v)));
+      if ((!isEnemy || erLocal.canBuild!==false) && !(v.buildQueue || []).length && Math.random() < (isEnemy ? 0.62 : 0.28) * d.aiGrowth) {
+        let candidates = choices.filter(k => C.buildings[k] && (v.buildings[k] || 0) < C.buildings[k].maxLevel && meets(v, C.buildings[k].requires) && canPay(v, buildingCost(k, v)));
+        // IAs expansionistas/ofensivas perseguem a cadeia que libera Academia/Nobres,
+        // em vez de depender de sorte para um dia chegar aos requisitos.
+        if (isEnemy && erLocal.canRecruitNobles!==false && erLocal.canConquer!==false && ["expansive","offensive"].includes(profile)) {
+          const strategic=["keep","barracks","smithy","market","academy","farm","storage","lumber","claypit","mine"];
+          candidates.sort((a,b)=>strategic.indexOf(a)-strategic.indexOf(b));
+        }
         if (candidates.length) {
-          const k = candidates[rand(0, candidates.length - 1)], cost = buildingCost(k, v);
+          const k = (isEnemy && ["expansive","offensive"].includes(profile)) ? candidates[0] : candidates[rand(0, candidates.length - 1)], cost = buildingCost(k, v);
           pay(v, cost);
           v.buildQueue.push({ building: k, start: now, end: now + (buildingTime(k, v) * 1000) / state.speed });
         }
@@ -759,7 +767,7 @@
           if(v.id===from.id) return false;
           const dist=Math.hypot(v.x-from.x,v.y-from.y); if(dist>(Number(er.attackRadius)||25)) return false;
           if(v.owner==="player") return er.canAttackPlayers!==false;
-          if(v.owner==="enemy") return er.canAttackOtherEnemies===true;
+          if(v.owner==="enemy") return er.canAttackOtherEnemies===true && v.aiId !== from.aiId;
           return er.canAttackBarbarians!==false;
         });
         if (!targets.length) return;
@@ -767,9 +775,9 @@
         const target = targets[rand(0, Math.min(7, targets.length-1))];
         const units = {}; let any=false;
         ["spear","sword","axe","archer","light","heavy","ram"].forEach(k => { if(k==="ram" && er.canUseSiege===false)return; const n=Math.floor((from.units[k]||0)*0.20); units[k]=n; if(n){from.units[k]-=n; any=true;} });
-        const conquestAllowed=er.canConquer!==false && enemyVillageCount < (Number(er.maxVillagesPerEnemy)||12) && (target.owner==="player" ? er.canConquerPlayers!==false : er.canConquerBarbarians!==false);
+        const conquestAllowed=er.canConquer!==false && enemyVillageCount < (Number(er.maxVillagesPerEnemy)||12) && (target.owner==="player" ? er.canConquerPlayers!==false : target.owner==="enemy" ? er.canConquerOtherEnemies===true : er.canConquerBarbarians!==false);
         if(conquestAllowed && (from.units.noble||0)>0 && (profile==="expansive" || profile==="offensive")){ units.noble=1; from.units.noble-=1; any=true; }
-        if (any) { const dist=Math.hypot(target.x-from.x,target.y-from.y), travelMs=Math.max(1000, dist*state.settings.travelSecondsPerTile*1000/state.speed); state.movements.push({id:`enemy-${Date.now()}-${Math.random()}`,fromId:from.id,targetId:target.id,units,outbound:true,start:now,end:now+travelMs,travelMs,catapultTarget:null}); }
+        if (any) { const dist=Math.hypot(target.x-from.x,target.y-from.y), travelMs=Math.max(1000, dist*state.settings.travelSecondsPerTile*1000/state.speed); state.movements.push({id:`enemy-${Date.now()}-${Math.random()}`,fromId:from.id,targetId:target.id,units,outbound:true,start:now,end:now+travelMs,travelMs,catapultTarget:null}); if(isMine(target)) notify(`⚔ Ataque inimigo a caminho de ${target.name} (${target.x}|${target.y}).`,"danger"); }
       });
     }
     state.lastAiAction = now;
@@ -906,6 +914,17 @@
     ["wood","clay","iron"].forEach(r => { if (data.resources?.[r] !== undefined) v.resources[r] = Math.max(0, Number(data.resources[r]) || 0); });
     state.villages[v.id] = v; saveRender(); notify("Nova aldeia criada."); return v.id;
   }
+  function clampAdminUnits(v, desired) {
+    const out={};
+    Object.keys(C.units).forEach(k=>out[k]=Math.max(0,Math.floor(Number(desired?.[k] ?? v.units?.[k] ?? 0)||0)));
+    // Filas já reservam população; edição administrativa não pode ignorá-las.
+    const queued=(v.trainQueue||[]).reduce((n,q)=>n+(C.units[q.unit]?Math.max(0,(q.amount||0)-(q.trained||0))*C.units[q.unit].population:0),0);
+    const available=Math.max(0,popCap(v)-buildingPopulation(v)-queued);
+    const requested=Object.entries(out).reduce((n,[k,q])=>n+q*(C.units[k]?.population||0),0);
+    const ratio=requested>available && requested>0 ? available/requested : 1;
+    Object.keys(out).forEach(k=>{ out[k]=Math.floor(out[k]*ratio); if(C.units[k]?.limit) out[k]=Math.min(out[k],C.units[k].limit); });
+    return {units:out, adjusted:ratio<1};
+  }
   function adminUpdate(villageId, data) {
     const v = state.villages[villageId];
     if (!v) return;
@@ -919,10 +938,11 @@
           ),
         );
     });
-    Object.keys(C.units).forEach((k) => {
-      if (data.units?.[k] !== undefined)
-        v.units[k] = Math.max(0, Math.floor(Number(data.units[k]) || 0));
-    });
+    if (data.units) {
+      const fixed=clampAdminUnits(v,{...v.units,...data.units});
+      v.units=fixed.units;
+      if(fixed.adjusted) notify("Tropas ajustadas proporcionalmente ao limite real de população da aldeia.","warning");
+    }
     ["wood", "clay", "iron"].forEach((r) => {
       if (data.resources?.[r] !== undefined)
         v.resources[r] = Math.max(
@@ -1015,7 +1035,7 @@
     const list = [...new Set(ids || [])].map(id => state.villages[id]).filter(Boolean);
     list.forEach(v => {
       Object.keys(C.buildings).forEach(k => { if (data.buildings?.[k] !== undefined) v.buildings[k] = Math.max(0, Math.min(C.buildings[k].maxLevel, Math.floor(Number(data.buildings[k]) || 0))); });
-      Object.keys(C.units).forEach(k => { if (data.units?.[k] !== undefined) v.units[k] = Math.max(0, Math.floor(Number(data.units[k]) || 0)); });
+      if(data.units){ const fixed=clampAdminUnits(v,{...v.units,...data.units}); v.units=fixed.units; }
       ["wood","clay","iron"].forEach(r => { if (data.resources?.[r] !== undefined) { const raw=data.resources[r]; const value = typeof raw === "string" && raw.endsWith("%") ? cap(v)*(Number(raw.slice(0,-1))/100) : Number(raw); v.resources[r]=Math.max(0,Math.min(cap(v),value||0)); } });
       if (data.bonusType !== undefined && C.bonusTypes[data.bonusType]) v.bonusType=data.bonusType;
     });
