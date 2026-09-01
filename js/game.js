@@ -578,6 +578,12 @@
     const from = state.villages[m.fromId],
       target = state.villages[m.targetId];
     if (!from || !target) return;
+    // Preserve ownership before combat/conquest mutates the target. These values
+    // are also used to route reports to the correct human player.
+    const defenderOwnerBefore = target.owner || null;
+    const defenderOwnerIdBefore = target.ownerId || null;
+    const attackerOwnerBefore = from.owner || null;
+    const attackerOwnerIdBefore = from.ownerId || null;
     const attackerKey=combatKey(from), defenderKey=combatKey(target);
     const attacker = { name: from.name, x: from.x, y: from.y, owner: from.owner || null },
       defender = { name: target.name, x: target.x, y: target.y, owner: target.owner || null },
@@ -715,7 +721,7 @@
     }
     // Relatórios de batalha pertencem ao jogador: não registrar combates
     // entre inimigos/bárbaros que não envolvam nenhuma aldeia do jogador.
-    const reportRecipients = [...new Set([from.owner === "player" ? from.ownerId : null, defenderOwnerBefore === "player" ? defenderOwnerIdBefore : null].filter(Boolean))];
+    const reportRecipients = [...new Set([attackerOwnerBefore === "player" ? attackerOwnerIdBefore : null, defenderOwnerBefore === "player" ? defenderOwnerIdBefore : null].filter(Boolean))];
     const playerInvolved = reportRecipients.length > 0;
     if (playerInvolved) state.reports.unshift({
       recipients: reportRecipients,
@@ -723,7 +729,7 @@
       time: Date.now(),
       type: win ? "win" : "loss",
       victory: win,
-      attackerPlayerId: from.owner === "player" ? from.ownerId : null,
+      attackerPlayerId: attackerOwnerBefore === "player" ? attackerOwnerIdBefore : null,
       defenderPlayerId: defenderOwnerBefore === "player" ? defenderOwnerIdBefore : null,
       attacker,
       defender,
@@ -893,14 +899,25 @@
       const due = state.movements.filter((m) => now >= m.end);
       state.movements = state.movements.filter((m) => now < m.end);
       if (due.length) changed = true;
-      due.forEach((m) =>
-        m.outbound
-          ? (m.kind === "support" ? arriveSupport(m) : resolve(m))
-          : Object.entries(m.units).forEach(([k, n]) => {
+      due.forEach((m) => {
+        try {
+          if (m.outbound) {
+            if (m.kind === "support") arriveSupport(m);
+            else resolve(m);
+          } else {
+            Object.entries(m.units || {}).forEach(([k, n]) => {
               const v = state.villages[m.fromId];
               if (v) v.units[k] = (v.units[k] || 0) + n;
-            }),
-      );
+            });
+          }
+        } catch (err) {
+          // Never make troops disappear because of a resolution error. Keep the
+          // command queued and retry on the next cycle, while logging diagnostics.
+          console.error("Falha ao processar comando", m, err);
+          m.end = now + 1500;
+          state.movements.push(m);
+        }
+      });
       spawnBarbarians(now);
       if (
         now - state.lastAiAction >
