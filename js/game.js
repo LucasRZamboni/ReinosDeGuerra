@@ -243,8 +243,15 @@
       base * (v.bonusType === "farm" ? 1 + bonusValue(v, "farm") / 100 : 1),
     );
   }
+  function buildingPopulationAt(k, lv) { const b=C.buildings[k]; lv=Math.max(0,Number(lv||0)); return (!b||!lv||!Number(b.populationBase)) ? 0 : Math.round(Number(b.populationBase)*Math.pow(Number(b.populationFactor||1),lv-1)); }
+  function buildingPopulation(v) {
+    return Object.entries(C.buildings).reduce((sum,[k,b]) => {
+      const lv=Math.max(0,Number(v.buildings?.[k]||0));
+      return sum + buildingPopulationAt(k,lv);
+    },0);
+  }
   const population = (v) =>
-    Object.entries(v.units).reduce(
+    buildingPopulation(v) + Object.entries(v.units).reduce(
       (n, [k, q]) => n + (C.units[k] ? q * C.units[k].population : 0),
       0,
     ) +
@@ -376,6 +383,9 @@
     v.buildQueue.forEach(q => projected.buildings[q.building] = (projected.buildings[q.building] || 0) + 1);
     if ((projected.buildings[k] || 0) >= b.maxLevel)
       return notify("Nível máximo já atingido ou enfileirado.", "warning");
+    const currentProjectedPop=population(projected), nextLv=(projected.buildings[k]||0)+1;
+    const extraBuildingPop=buildingPopulationAt(k,nextLv)-buildingPopulationAt(k,projected.buildings[k]||0);
+    if(currentProjectedPop+extraBuildingPop>popCap(projected)) return notify("População insuficiente na Fazenda para esta construção.","warning");
     const queuedCost = buildingCost(k, projected);
     if (!canPay(v, queuedCost)) return notify("Recursos insuficientes.", "danger");
     pay(v, queuedCost);
@@ -710,7 +720,8 @@
     // A IA não ganha mais recursos, edifícios ou tropas gratuitamente a cada ciclo.
     Object.values(state.villages).filter((v) => v.owner !== "player").forEach((v) => {
       const profile=v.aiProfile||"economic"; const choices = profile==="defensive" ? ["wall","farm","storage","barracks","keep","lumber","claypit","mine"] : profile==="offensive" ? ["barracks","stable","smithy","farm","storage","keep","lumber","claypit","mine"] : profile==="expansive" ? ["academy","farm","storage","barracks","stable","keep","lumber","claypit","mine"] : ["lumber","claypit","mine","farm","storage","keep","market","barracks"];
-      if (!(v.buildQueue || []).length && Math.random() < 0.28 * d.aiGrowth) {
+      const erLocal=state.settings.enemyRules||{}, isEnemy=v.owner==="enemy";
+      if ((!isEnemy || erLocal.canBuild!==false) && !(v.buildQueue || []).length && Math.random() < 0.28 * d.aiGrowth) {
         const candidates = choices.filter(k => C.buildings[k] && (v.buildings[k] || 0) < C.buildings[k].maxLevel && meets(v, C.buildings[k].requires) && canPay(v, buildingCost(k, v)));
         if (candidates.length) {
           const k = candidates[rand(0, candidates.length - 1)], cost = buildingCost(k, v);
@@ -718,20 +729,20 @@
           v.buildQueue.push({ building: k, start: now, end: now + (buildingTime(k, v) * 1000) / state.speed });
         }
       }
-      if (state.settings.freeVillagesTrainTroops !== false && Math.random() < 0.55 * d.aiGrowth) {
+      if (state.settings.freeVillagesTrainTroops !== false && (!isEnemy || erLocal.canRecruitTroops!==false) && Math.random() < 0.55 * d.aiGrowth) {
         // A IA recompõe o exército com todas as classes que já desbloqueou.
         // Expansivas/Ofensivas também passam a formar Nobres quando a Academia e os recursos permitem.
         const pools = profile === "defensive" ? ["spear","sword","archer","heavy","scout"]
           : profile === "expansive" ? ["axe","light","spear","scout","ram","noble"]
           : profile === "offensive" ? ["axe","light","mounted","ram","catapult","scout","noble"]
           : ["spear","sword","axe","archer","scout","light"];
-        const options = pools.filter(k => C.units[k] && meets(v, C.units[k].requires || {}) && population(v) + C.units[k].population <= popCap(v) && canPay(v, unitCost(k, v)));
+        const options = pools.filter(k => C.units[k] && (!isEnemy || k!=="noble" || erLocal.canRecruitNobles!==false) && (!isEnemy || !["ram","catapult"].includes(k) || erLocal.canUseSiege!==false) && meets(v, C.units[k].requires || {}) && population(v) + C.units[k].population <= popCap(v) && canPay(v, unitCost(k, v)));
         if (options.length) {
           // Prioriza um Nobre quando pode conquistar e ainda não possui um disponível.
           const er = state.settings.enemyRules || {};
           let k = options.includes("noble") && er.canConquer !== false && (v.units.noble || 0) < 1 ? "noble" : options[rand(0, options.length - 1)];
           const cost = unitCost(k, v), room = Math.floor((popCap(v)-population(v))/Math.max(1,C.units[k].population));
-          let batch = k === "noble" ? 1 : Math.max(1, Math.min(10, room));
+          let batch = k === "noble" ? 1 : Math.max(1, Math.min(Number(erLocal.recruitmentBatch)||20, room));
           for (const r of ["wood","clay","iron"]) batch = Math.min(batch, Math.floor(v.resources[r]/Math.max(1,cost[r])));
           batch = Math.max(0,batch);
           if (batch) { pay(v, Object.fromEntries(["wood","clay","iron"].map(r=>[r,cost[r]*batch]))); v.units[k] = (v.units[k] || 0) + batch; }
@@ -755,7 +766,7 @@
         targets.sort((a,b) => Math.hypot(a.x-from.x,a.y-from.y)-Math.hypot(b.x-from.x,b.y-from.y));
         const target = targets[rand(0, Math.min(7, targets.length-1))];
         const units = {}; let any=false;
-        ["spear","sword","axe","archer","light","heavy","ram"].forEach(k => { const n=Math.floor((from.units[k]||0)*0.20); units[k]=n; if(n){from.units[k]-=n; any=true;} });
+        ["spear","sword","axe","archer","light","heavy","ram"].forEach(k => { if(k==="ram" && er.canUseSiege===false)return; const n=Math.floor((from.units[k]||0)*0.20); units[k]=n; if(n){from.units[k]-=n; any=true;} });
         const conquestAllowed=er.canConquer!==false && enemyVillageCount < (Number(er.maxVillagesPerEnemy)||12) && (target.owner==="player" ? er.canConquerPlayers!==false : er.canConquerBarbarians!==false);
         if(conquestAllowed && (from.units.noble||0)>0 && (profile==="expansive" || profile==="offensive")){ units.noble=1; from.units.noble-=1; any=true; }
         if (any) { const dist=Math.hypot(target.x-from.x,target.y-from.y), travelMs=Math.max(1000, dist*state.settings.travelSecondsPerTile*1000/state.speed); state.movements.push({id:`enemy-${Date.now()}-${Math.random()}`,fromId:from.id,targetId:target.id,units,outbound:true,start:now,end:now+travelMs,travelMs,catapultTarget:null}); }
@@ -1015,10 +1026,10 @@
   function bulkBuild(ids, building){ let ok=0; (ids||[]).forEach(vid=>{ const v=state.villages[vid]; if(!v||!isMine(v)||!C.buildings[building])return; const b=C.buildings[building]; if((v.buildings[building]||0)>=b.maxLevel||!meets(v,b.requires))return; const c=buildingCost(building,v); if(!canPay(v,c))return; const queueAllowed=!v.buildQueue.length||state.settings.unlimitedBuildQueue||(v.buildings.keep||0)>=10; if(!queueAllowed)return; pay(v,c); const start=v.buildQueue.length?v.buildQueue[v.buildQueue.length-1].end:Date.now(); v.buildQueue.push({building,start,end:start+(buildingTime(building,v)*1000)/state.speed}); ok++; }); saveRender(); notify(`Construção adicionada em ${ok} aldeia(s).`); }
   function bulkRecruitPreset(ids,preset){ let ok=0; (ids||[]).forEach(vid=>{ const v=state.villages[vid]; if(!v||!isMine(v))return; Object.entries(preset||{}).forEach(([k,w])=>{ if(!C.units[k]||w<=0||!meets(v,C.units[k].requires||{}))return; let max=Math.floor((popCap(v)-population(v))/C.units[k].population); for(const r of ["wood","clay","iron"]) max=Math.min(max,Math.floor(v.resources[r]/Math.max(1,unitCost(k,v)[r]))); const n=Math.max(0,Math.min(Math.floor(w),max)); if(n){ recruitAt(v.id,k,n); ok++; } }); }); notify(`Treinos adicionados (${ok} filas).`); }
   function adminBulkFinish(ids,what="all"){ if(!isAdmin())return; (ids||[]).forEach(vid=>{const v=state.villages[vid];if(!v)return;if(what!=="training")while(v.buildQueue?.length)adminFinishBuild(vid,0);if(what!=="build")while(v.trainQueue?.length)adminFinishTraining(vid,0);}); saveRender(); }
-  function adminBulkOwner(ids,ownerId){ if(!isAdmin())return; (ids||[]).forEach(vid=>{const v=state.villages[vid];if(!v)return;if(ownerId==="barbarian"){v.owner=null;v.ownerId=null;}else if(ownerId==="enemy"){v.owner="enemy";v.ownerId=null;}else{v.owner="player";v.ownerId=ownerId;}});saveRender();notify("Proprietário atualizado em massa.");}
+  function adminBulkOwner(ids,ownerId){ if(!isAdmin())return; (ids||[]).forEach(vid=>{const v=state.villages[vid];if(!v)return;if(ownerId==="barbarian"){v.owner=null;v.ownerId=null;}else if(String(ownerId).startsWith("ai:")){v.owner="enemy";v.ownerId=null;v.aiId=String(ownerId).slice(3); const src=Object.values(state.villages).find(x=>x.owner==="enemy"&&x.aiId===v.aiId); v.aiProfile=src?.aiProfile||v.aiProfile||"expansive";}else if(ownerId==="enemy"){v.owner="enemy";v.ownerId=null;v.aiId=v.aiId||`ai-${v.id}`;}else{v.owner="player";v.ownerId=ownerId;v.aiId=null;}});saveRender();notify("Proprietário atualizado em massa.");}
 
   window.Game = {
-    ensureCurrentPlayer, isMine, currentPlayerId, buildAt, recruitAt, adminBulkUpdate, bulkBuild, bulkRecruitPreset, adminBulkFinish, adminBulkOwner,
+    ensureCurrentPlayer, isMine, currentPlayerId, buildingPopulation, buildAt, recruitAt, adminBulkUpdate, bulkBuild, bulkRecruitPreset, adminBulkFinish, adminBulkOwner,
     get state() {
       return state;
     },
@@ -1078,7 +1089,6 @@
         initialBuildingLevels: { ...state.settings.initialBuildingLevels, ...(x.initialBuildingLevels || {}) },
         freeStartingPointLevels: { ...state.settings.freeStartingPointLevels, ...(x.freeStartingPointLevels || {}) },
       });
-      syncEnemies();
       saveRender();
     },
     reset(options = {}) {

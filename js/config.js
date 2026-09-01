@@ -59,6 +59,13 @@ window.GAME_CONFIG = {
     canConquerBarbarians: true,
     maxVillagesPerEnemy: 12,
     attackRadius: 25,
+    canRecruitTroops: true,
+    canBuild: true,
+    canRecruitNobles: true,
+    canUseSiege: true,
+    canScout: true,
+    recruitmentBatch: 20,
+    actionIntervalSeconds: 12,
   },
   buildingPresets: {
     halfRatio: 0.5,
@@ -67,6 +74,7 @@ window.GAME_CONFIG = {
   adminPresets: {
     defenseTroops: { spear: 5000, sword: 5000, archer: 5000,scout: 500, heavy: 1000, catapult: 500 },
     attackTroops: { axe: 7500, light: 3000,scout: 250, ram: 300 },
+    attackNoblesTroops: { axe: 7000, light: 2800, scout: 250, ram: 300, noble: 4 },
     customTroops: { spear: 1000, sword: 1000, axe: 1000, archer: 0, scout: 100, light: 500, mounted: 0, heavy: 0, ram: 100, catapult: 100, noble: 0 },
   },
   baseLoyalty: 100,
@@ -123,6 +131,7 @@ window.GAME_CONFIG = {
       baseTime: 8,
       maxLevel: 30,
       pointBase: 10,
+      populationBase: 5, populationFactor: 1.17,
     },
     barracks: {
       name: "Quartel",
@@ -133,6 +142,7 @@ window.GAME_CONFIG = {
       baseTime: 12,
       maxLevel: 25,
       pointBase: 16,
+      populationBase: 7, populationFactor: 1.17,
       requires: { keep: 3 },
     },
     stable: {
@@ -144,6 +154,7 @@ window.GAME_CONFIG = {
       baseTime: 20,
       maxLevel: 20,
       pointBase: 20,
+      populationBase: 8, populationFactor: 1.17,
       requires: { keep: 10, barracks: 5, smithy: 5 },
     },
     workshop: {
@@ -155,6 +166,7 @@ window.GAME_CONFIG = {
       baseTime: 22,
       maxLevel: 15,
       pointBase: 24,
+      populationBase: 10, populationFactor: 1.17,
       requires: { keep: 10, smithy: 10 },
     },
     academy: {
@@ -166,6 +178,7 @@ window.GAME_CONFIG = {
       baseTime: 55,
       maxLevel: 1,
       pointBase: 512,
+      populationBase: 80, populationFactor: 1,
       requires: { keep: 20, smithy: 20, market: 10 },
     },
     smithy: {
@@ -177,6 +190,7 @@ window.GAME_CONFIG = {
       baseTime: 20,
       maxLevel: 20,
       pointBase: 24,
+      populationBase: 20, populationFactor: 1.17,
       requires: { keep: 5, barracks: 1 },
     },
     rally: {
@@ -188,6 +202,7 @@ window.GAME_CONFIG = {
       baseTime: 5,
       maxLevel: 1,
       pointBase: 0,
+      populationBase: 0, populationFactor: 1,
     },
     statue: {
       name: "Estátua",
@@ -198,6 +213,7 @@ window.GAME_CONFIG = {
       baseTime: 10,
       maxLevel: 1,
       pointBase: 24,
+      populationBase: 10, populationFactor: 1,
     },
     market: {
       name: "Mercado",
@@ -208,6 +224,7 @@ window.GAME_CONFIG = {
       baseTime: 10,
       maxLevel: 25,
       pointBase: 10,
+      populationBase: 20, populationFactor: 1.17,
       requires: { keep: 3, storage: 2 },
     },
     lumber: {
@@ -219,6 +236,7 @@ window.GAME_CONFIG = {
       baseTime: 5,
       maxLevel: 30,
       pointBase: 6,
+      populationBase: 5, populationFactor: 1.155,
     },
     claypit: {
       name: "Barreiro",
@@ -229,6 +247,7 @@ window.GAME_CONFIG = {
       baseTime: 5,
       maxLevel: 30,
       pointBase: 6,
+      populationBase: 10, populationFactor: 1.14,
     },
     mine: {
       name: "Mina de Ferro",
@@ -239,6 +258,7 @@ window.GAME_CONFIG = {
       baseTime: 6,
       maxLevel: 30,
       pointBase: 6,
+      populationBase: 10, populationFactor: 1.14,
     },
     farm: {
       name: "Fazenda",
@@ -269,6 +289,7 @@ window.GAME_CONFIG = {
       baseTime: 5,
       maxLevel: 10,
       pointBase: 5,
+      populationBase: 2, populationFactor: 1.17,
     },
     wall: {
       name: "Muralha",
@@ -279,6 +300,7 @@ window.GAME_CONFIG = {
       baseTime: 8,
       maxLevel: 20,
       pointBase: 5,
+      populationBase: 5, populationFactor: 1.17,
       requires: { barracks: 1 },
     },
   },
