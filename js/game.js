@@ -532,6 +532,37 @@
       end: Date.now() + ms,
     });
   }
+  function scheduleAttack(targetId, units, whenMs, mode = "arrival", catapultTarget = null) {
+    const from=active(), target=state.villages[targetId];
+    if(!from||!target) return notify("Origem ou destino inválido.","warning");
+    if(isMine(target)) return notify("Não é possível atacar uma aldeia em sua posse.","warning");
+    const sent=Object.fromEntries(Object.entries(units).filter(([k])=>C.units[k]).map(([k,n])=>[k,Math.max(0,Math.floor(Number(n)||0))]).filter(([,n])=>n));
+    if(!Object.keys(sent).length) return notify("Escolha pelo menos uma unidade.","warning");
+    if(Object.entries(sent).some(([k,n])=>(from.units[k]||0)<n)) return notify("Quantidade inválida ou já reservada.","danger");
+    const pop=Object.entries(sent).reduce((sum,[k,n])=>sum+n*(C.units[k]?.population||0),0), min=Math.max(1,Number(state.settings.minimumAttackPopulation??C.minimumAttackPopulation??10));
+    if(pop<min) return notify(`Ataques exigem no mínimo ${min} de população militar.`,"warning");
+    const info=travelInfo(target.id,sent), travelMs=info.seconds*1000, chosen=Number(whenMs)||0;
+    const departAt=mode==="departure"?chosen:chosen-travelMs, arriveAt=mode==="departure"?chosen+travelMs:chosen;
+    if(departAt<=Date.now()+500) return notify("O horário escolhido não permite preparar este ataque.","warning");
+    Object.entries(sent).forEach(([k,n])=>from.units[k]-=n); // reserva real
+    state.movements.push({id:`scheduled-${Date.now()}-${Math.random()}`,kind:"scheduledAttack",fromId:from.id,targetId:target.id,units:sent,catapultTarget,outbound:true,scheduled:true,departAt,end:arriveAt,travelMs});
+    saveRender(); notify("Ataque agendado. As tropas ficaram reservadas.","success"); return true;
+  }
+  function scheduleAttackFrom(fromId,targetId,units,whenMs,mode="arrival",catapultTarget=null){
+    const from=state.villages[fromId], target=state.villages[targetId]; if(!from||!isMine(from)||!target)return false;
+    const sent=Object.fromEntries(Object.entries(units).filter(([k])=>C.units[k]).map(([k,n])=>[k,Math.max(0,Math.floor(Number(n)||0))]).filter(([,n])=>n));
+    if(!Object.keys(sent).length||Object.entries(sent).some(([k,n])=>(from.units[k]||0)<n))return false;
+    const pop=Object.entries(sent).reduce((z,[k,n])=>z+n*(C.units[k]?.population||0),0),min=Math.max(1,Number(state.settings.minimumAttackPopulation??10)); if(pop<min)return false;
+    const dist=Math.hypot(target.x-from.x,target.y-from.y), slow=Math.max(...Object.keys(sent).map(k=>C.units[k]?.speed||1)), travelMs=Math.max(1000,dist*state.settings.travelSecondsPerTile*slow*1000/state.speed);
+    const chosen=Number(whenMs)||0,departAt=mode==="departure"?chosen:chosen-travelMs,arriveAt=mode==="departure"?chosen+travelMs:chosen;if(departAt<=Date.now()+500)return false;
+    Object.entries(sent).forEach(([k,n])=>from.units[k]-=n);state.movements.push({id:`scheduled-${Date.now()}-${Math.random()}`,kind:"scheduledAttack",fromId,targetId,units:sent,catapultTarget,outbound:true,scheduled:true,departAt,end:arriveAt,travelMs});return true;
+  }
+  function cancelScheduled(id){
+    const i=state.movements.findIndex(m=>m.id===id&&m.scheduled); if(i<0)return;
+    const m=state.movements[i], from=state.villages[m.fromId];
+    if(from) Object.entries(m.units||{}).forEach(([k,n])=>from.units[k]=(from.units[k]||0)+n);
+    state.movements.splice(i,1); saveRender(); notify("Agendamento cancelado; tropas liberadas.");
+  }
   function sendAttack(targetId, units, catapultTarget = null) {
     const from = active(),
       target = state.villages[targetId];
@@ -910,8 +941,9 @@
           if (q.trained >= q.amount) v.trainQueue.shift();
         }
       });
-      const due = state.movements.filter((m) => now >= m.end);
-      state.movements = state.movements.filter((m) => now < m.end);
+      state.movements.forEach(m=>{ if(m.scheduled && now>=m.departAt){ m.scheduled=false; m.kind="attack"; m.start=m.departAt; } });
+      const due = state.movements.filter((m) => !m.scheduled && now >= m.end);
+      state.movements = state.movements.filter((m) => m.scheduled || now < m.end);
       if (due.length) changed = true;
       due.forEach((m) => {
         try {
@@ -968,11 +1000,10 @@
     const desired = state.settings.enemiesEnabled ? Math.max(0, Math.floor(Number(state.settings.enemyCount) || 0)) : 0;
     let enemies = Object.values(state.villages).filter(v => v.owner === "enemy");
     while (enemies.length > desired) { enemies.pop().owner = null; }
-    const free = Object.values(state.villages).filter(v => !v.owner);
+    const free = Object.values(state.villages).filter(v => !v.owner && (!v.bonusType || v.bonusType === "none"));
     while (enemies.length < desired && free.length) {
       const v = free.splice(rand(0, free.length - 1), 1)[0];
       v.owner = "enemy"; v.name = `Inimigo ${enemies.length + 1}`; v.aiProfile = ["offensive","defensive","economic","expansive"][enemies.length%4]; v.aiId = `ai-${v.id}`;
-      v.units.spear = Math.max(v.units.spear || 0, 80); v.units.axe = Math.max(v.units.axe || 0, 120);
       enemies.push(v);
     }
   }
@@ -1169,7 +1200,7 @@
     travelInfo,
     build,
     recruit,
-    sendAttack, sendSupport, withdrawSupport,
+    sendAttack, scheduleAttack, scheduleAttackFrom, cancelScheduled, sendSupport, withdrawSupport,
     markReportRead(id,read=true){const r=state.reports.find(x=>x.id===id);if(r){r.read=read;S.save(state);}},
     toggleReportFavorite(id){const r=state.reports.find(x=>x.id===id);if(r){r.favorite=!r.favorite;S.save(state);saveRender();}},
     deleteReports(ids){const set=new Set(ids);state.reports=state.reports.filter(r=>!set.has(r.id));saveRender();},
