@@ -5,8 +5,8 @@
  */
 window.GAME_CONFIG = {
   saveKey: "reinosDeGuerra_save_v1",
-  tickMs: 1000,
-  autosaveMs: 10000,
+  tickMs: 1500,
+  autosaveMs: 20000,
   // PIN local para abrir ferramentas administrativas. Em multiplayer real, autenticação deve ficar no servidor.
   adminPin: "2468",
   // Login local para a versão estática. Em multiplayer, mover autenticação para o servidor.

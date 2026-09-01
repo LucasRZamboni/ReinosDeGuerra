@@ -37,6 +37,8 @@
       barbarianSpawn: clone(C.barbarianSpawn || {enabled:true,intervalMinutes:30,maxNewVillages:20,perCycle:1,bonusChance:15,maximized:false}),
       enemyRules: clone(C.enemyRules || {}),
       buildingPresets: clone(C.buildingPresets || {halfRatio:.5,custom:null}),
+      newPlayerProtectionHours: C.newPlayerProtectionHours ?? 72,
+      victoryRules: clone(C.victoryRules || {enabled:true,type:"villages",target:10}),
       initialBuildingLevels: clone(C.initialBuildingLevels),
       freeStartingPointLevels: clone(C.freeStartingPointLevels),
       bonus: bonusDefaults(),
@@ -52,6 +54,7 @@
       barbarianSpawn: { ...d.barbarianSpawn, ...(options.barbarianSpawn || {}) },
       enemyRules: { ...d.enemyRules, ...(options.enemyRules || {}) },
       buildingPresets: { ...d.buildingPresets, ...(options.buildingPresets || {}) },
+      victoryRules: { ...d.victoryRules, ...(options.victoryRules || {}) },
       initialBuildingLevels: { ...d.initialBuildingLevels, ...(options.initialBuildingLevels || {}) },
       freeStartingPointLevels: { ...d.freeStartingPointLevels, ...(options.freeStartingPointLevels || {}) },
     };
@@ -143,6 +146,8 @@
       villages,
       movements: [],
       combatStats: {},
+      supportStationed: {},
+      aiDiagnostics: {},
       reports: [
         {
           id: `info-${Date.now()}`,
@@ -236,6 +241,8 @@
     data.movements = data.movements || [];
     data.combatStats = data.combatStats || {};
     data.reports = data.reports || [];
+    data.supportStationed = data.supportStationed || {}; data.aiDiagnostics = data.aiDiagnostics || {};
+    Object.values(data.villages).forEach(v=>{ if(v.owner==="player" && !v.protectionUntil && v.ownerId && v.ownerId!=="admin") v.protectionUntil=0; });
     data.settings.objective =
       data.settings.objective === "rivals" ? "map100" : data.settings.objective;
     if (!data.villages[data.activeVillageId]) data.activeVillageId = Object.keys(data.villages)[0];
@@ -559,6 +566,14 @@
   function combatKey(v){ return v?.owner==="enemy" ? (v.aiId||`ai-${v.id}`) : v?.owner==="player" ? v.ownerId : null; }
   function combatStat(key){ if(!key) return null; return state.combatStats[key]||(state.combatStats[key]={attackerPoints:0,defenderPoints:0,conquests:0}); }
   function unitLossScore(units){ return Object.entries(units||{}).reduce((n,[k,q])=>n+q*((C.units[k]?.population||1)+(C.units[k]?.attack||0)/50),0); }
+  function sendSupport(targetId, units) {
+    const from=active(), target=state.villages[targetId]; if(!from||!target) return notify("Destino inválido.","warning");
+    const clean={}; let any=false; for(const k of Object.keys(C.units)){const n=Math.max(0,Math.floor(Number(units?.[k])||0)); if(n>(from.units[k]||0)) return notify("Tropas insuficientes.","warning"); clean[k]=n; any ||= n>0;}
+    if(!any) return notify("Selecione tropas para o apoio.","warning"); Object.entries(clean).forEach(([k,n])=>from.units[k]-=n);
+    const info=travelInfo(targetId,clean), ms=info.seconds*1000; state.movements.push({id:`support-${Date.now()}-${Math.random()}`,kind:"support",fromId:from.id,targetId:target.id,units:clean,outbound:true,travelMs:ms,end:Date.now()+ms}); saveRender();
+  }
+  function withdrawSupport(supportId){ const x=state.supportStationed[supportId]; if(!x) return; const target=state.villages[x.targetId], home=state.villages[x.fromId]; if(!target||!home) return; delete state.supportStationed[supportId]; const ms=Math.max(1000,Math.hypot(target.x-home.x,target.y-home.y)*state.settings.travelSecondsPerTile*1000/state.speed); state.movements.push({id:`support-return-${Date.now()}-${Math.random()}`,kind:"supportReturn",fromId:x.fromId,targetId:x.targetId,units:x.units,outbound:false,travelMs:ms,end:Date.now()+ms}); saveRender(); }
+  function arriveSupport(m){ state.supportStationed[m.id]={id:m.id,fromId:m.fromId,targetId:m.targetId,units:clone(m.units),arrivedAt:Date.now()}; }
   function resolve(m) {
     const from = state.villages[m.fromId],
       target = state.villages[m.targetId];
@@ -748,7 +763,7 @@
     // A IA não ganha mais recursos, edifícios ou tropas gratuitamente a cada ciclo.
     Object.values(state.villages).filter((v) => v.owner !== "player").forEach((v) => {
       const profile=v.aiProfile||"economic"; const choices = profile==="defensive" ? ["wall","farm","storage","barracks","keep","lumber","claypit","mine"] : profile==="offensive" ? ["barracks","stable","smithy","farm","storage","keep","lumber","claypit","mine"] : profile==="expansive" ? ["academy","farm","storage","barracks","stable","keep","lumber","claypit","mine"] : ["lumber","claypit","mine","farm","storage","keep","market","barracks"];
-      const erLocal=state.settings.enemyRules||{}, isEnemy=v.owner==="enemy";
+      const erLocal=state.settings.enemyRules||{}, isEnemy=v.owner==="enemy"; if(isEnemy){ const drec=state.aiDiagnostics[v.aiId||v.id]||(state.aiDiagnostics[v.aiId||v.id]={}); drec.lastSeen=now; drec.status=(v.buildQueue||[]).length?"Construindo":(v.trainQueue||[]).length?"Recrutando":population(v)>=popCap(v)?"Fazenda cheia":"Economia/evolução"; drec.villageId=v.id; }
       if ((!isEnemy || erLocal.canBuild!==false) && !(v.buildQueue || []).length && Math.random() < (isEnemy ? 0.62 : 0.28) * d.aiGrowth) {
         let candidates = choices.filter(k => C.buildings[k] && (v.buildings[k] || 0) < C.buildings[k].maxLevel && meets(v, C.buildings[k].requires) && canPay(v, buildingCost(k, v)));
         // IAs expansionistas/ofensivas perseguem a cadeia que libera Academia/Nobres,
@@ -792,16 +807,17 @@
         const targets = Object.values(state.villages).filter(v => {
           if(v.id===from.id) return false;
           const dist=Math.hypot(v.x-from.x,v.y-from.y); if(dist>(Number(er.attackRadius)||25)) return false;
-          if(v.owner==="player") return er.canAttackPlayers!==false;
+          if(v.owner==="player") return er.canAttackPlayers!==false && !(v.protectionUntil && now < v.protectionUntil);
           if(v.owner==="enemy") return er.canAttackOtherEnemies===true && v.aiId !== from.aiId;
           return er.canAttackBarbarians!==false;
         });
-        if (!targets.length) return;
+        if (!targets.length) { const drec=state.aiDiagnostics[from.aiId||from.id]||(state.aiDiagnostics[from.aiId||from.id]={}); drec.status="Sem alvo permitido"; return; }
         targets.sort((a,b) => Math.hypot(a.x-from.x,a.y-from.y)-Math.hypot(b.x-from.x,b.y-from.y));
         const target = targets[rand(0, Math.min(7, targets.length-1))];
         const units = {}; let any=false;
         ["spear","sword","axe","archer","light","heavy","ram"].forEach(k => { if(k==="ram" && er.canUseSiege===false)return; const n=Math.floor((from.units[k]||0)*0.20); units[k]=n; if(n){from.units[k]-=n; any=true;} });
         const conquestAllowed=er.canConquer!==false && enemyVillageCount < (Number(er.maxVillagesPerEnemy)||12) && (target.owner==="player" ? er.canConquerPlayers!==false : target.owner==="enemy" ? er.canConquerOtherEnemies===true : er.canConquerBarbarians!==false);
+        if(conquestAllowed && !(from.units.noble||0)){ const drec=state.aiDiagnostics[from.aiId||from.id]||(state.aiDiagnostics[from.aiId||from.id]={}); drec.status="Preparando Nobre"; }
         if(conquestAllowed && (from.units.noble||0)>0 && (profile==="expansive" || profile==="offensive")){ units.noble=1; from.units.noble-=1; any=true; }
         if (any) { const dist=Math.hypot(target.x-from.x,target.y-from.y), travelMs=Math.max(1000, dist*state.settings.travelSecondsPerTile*1000/state.speed); state.movements.push({id:`enemy-${Date.now()}-${Math.random()}`,fromId:from.id,targetId:target.id,units,outbound:true,start:now,end:now+travelMs,travelMs,catapultTarget:null}); if(isMine(target)) notify(`⚔ Ataque inimigo a caminho de ${target.name} (${target.x}|${target.y}).`,"danger"); }
       });
@@ -809,11 +825,11 @@
     state.lastAiAction = now;
   }
   function checkVictory() {
-    const o = C.objectives[state.settings.objective] || C.objectives.villages10,
+    const vr=state.settings.victoryRules||{}, o = vr.enabled===false ? {type:"none",target:Infinity,name:"Sem condição de vitória"} : (vr.type ? {type:vr.type,target:Number(vr.target)||10,name:`${vr.type}: ${vr.target}`} : (C.objectives[state.settings.objective] || C.objectives.villages10)),
       count = owned().length,
       total = Object.keys(state.villages).length,
       won =
-        o.type === "conquests"
+        o.type === "none" ? false : o.type === "last" ? [...new Set(Object.values(state.villages).filter(v=>v.owner==="player"||v.owner==="enemy").map(v=>v.owner==="enemy"?(v.aiId||v.id):(v.ownerId||v.id)))].length<=1 : o.type === "points" ? owned().reduce((n,v)=>n+points(v),0)>=o.target : o.type === "conquests"
           ? Math.max(0, count - 1) >= o.target
           : o.type === "villages"
             ? count >= o.target
@@ -879,7 +895,7 @@
       if (due.length) changed = true;
       due.forEach((m) =>
         m.outbound
-          ? resolve(m)
+          ? (m.kind === "support" ? arriveSupport(m) : resolve(m))
           : Object.entries(m.units).forEach(([k, n]) => {
               const v = state.villages[m.fromId];
               if (v) v.units[k] = (v.units[k] || 0) + n;
@@ -1063,7 +1079,7 @@
     const [x,y]=spots[rand(0,spots.length-1)], v=makeVillage(x,y,"player",state.settings);
     v.ownerId=pid; v.name=`Aldeia de ${sess.username}`;
     v.buildings={...Object.fromEntries(Object.keys(C.buildings).map(k=>[k,0])),...clone(state.settings.initialBuildingLevels)};
-    state.villages[v.id]=v; state.activeVillageId=v.id;
+    v.protectionUntil=Date.now()+Math.max(0,Number(state.settings.newPlayerProtectionHours)||0)*3600000; state.villages[v.id]=v; state.activeVillageId=v.id;
     state.players=state.players||{}; state.players[pid]={...(state.players[pid]||{}),id:pid,username:sess.username,role:sess.role,hasStarted:true,lastSeen:Date.now()};
     S.save(state); saveRender(); notify(`Nova aldeia fundada em ${x}|${y}.`,"success"); return v;
   }
@@ -1118,7 +1134,10 @@
     travelInfo,
     build,
     recruit,
-    sendAttack,
+    sendAttack, sendSupport, withdrawSupport,
+    markReportRead(id,read=true){const r=state.reports.find(x=>x.id===id);if(r){r.read=read;S.save(state);}},
+    toggleReportFavorite(id){const r=state.reports.find(x=>x.id===id);if(r){r.favorite=!r.favorite;S.save(state);saveRender();}},
+    deleteReports(ids){const set=new Set(ids);state.reports=state.reports.filter(r=>!set.has(r.id));saveRender();},
     deleteReport(id) { state.reports = state.reports.filter((r) => r.id !== id); saveRender(); },
     clearReports() { const pid=currentPlayerId(); state.reports = isAdmin() ? [] : state.reports.filter(r => !(r.recipients||[]).includes(pid) && r.playerId !== pid); saveRender(); },
     adminUpdate,
