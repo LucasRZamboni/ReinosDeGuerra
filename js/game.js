@@ -3,7 +3,11 @@
     S = window.GameStorage,
     clone = (o) => JSON.parse(JSON.stringify(o)),
     rand = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a,
-    id = (x, y) => `v-${x}-${y}`;
+    id = (x, y) => `v-${x}-${y}`,
+    mapMinX = () => C.mapOriginCentered ? -Math.floor(C.mapWidth/2) : 0,
+    mapMinY = () => C.mapOriginCentered ? -Math.floor(C.mapHeight/2) : 0,
+    mapMaxX = () => mapMinX()+C.mapWidth-1,
+    mapMaxY = () => mapMinY()+C.mapHeight-1;
   const session = () => window.RDGAuth?.current?.() || null;
   const currentPlayerId = () => session()?.playerId || "admin";
   const isAdmin = () => session()?.role === "admin";
@@ -30,7 +34,7 @@
       unlimitedBuildQueue: C.unlimitedBuildQueue ?? false,
       enemiesEnabled: C.enemiesEnabled ?? false,
       enemyCount: C.enemyCount ?? 0,
-      barbarianSpawn: clone(C.barbarianSpawn || {enabled:true,intervalMinutes:30,maxNewVillages:20,perCycle:1,bonusChance:15}),
+      barbarianSpawn: clone(C.barbarianSpawn || {enabled:true,intervalMinutes:30,maxNewVillages:20,perCycle:1,bonusChance:15,maximized:false}),
       enemyRules: clone(C.enemyRules || {}),
       buildingPresets: clone(C.buildingPresets || {halfRatio:.5,custom:null}),
       initialBuildingLevels: clone(C.initialBuildingLevels),
@@ -96,8 +100,8 @@
   }
   function makeTerrain() {
     const cells = [];
-    for (let y = 0; y < C.mapHeight; y++)
-      for (let x = 0; x < C.mapWidth; x++) {
+    for (let y = mapMinY(); y <= mapMaxY(); y++)
+      for (let x = mapMinX(); x <= mapMaxX(); x++) {
         const n = Math.random(),
           type =
             n < 0.1
@@ -115,8 +119,8 @@
     const settings = mergedSettings(options),
       villages = {},
       terrain = makeTerrain();
-    for (let y = 0; y < C.mapHeight; y++)
-      for (let x = 0; x < C.mapWidth; x++) {
+    for (let y = mapMinY(); y <= mapMaxY(); y++)
+      for (let x = mapMinX(); x <= mapMaxX(); x++) {
         const start = x === C.startingVillage.x && y === C.startingVillage.y;
         if (start || Math.random() < C.villageDensity)
           {
@@ -138,6 +142,7 @@
       terrain,
       villages,
       movements: [],
+      combatStats: {},
       reports: [
         {
           id: `info-${Date.now()}`,
@@ -157,8 +162,8 @@
       data.terrain = makeTerrain();
       const target = Math.round(C.mapWidth * C.mapHeight * C.villageDensity),
         empty = [];
-      for (let y = 0; y < C.mapHeight; y++)
-        for (let x = 0; x < C.mapWidth; x++)
+      for (let y = mapMinY(); y <= mapMaxY(); y++)
+        for (let x = mapMinX(); x <= mapMaxX(); x++)
           if (!data.villages[id(x, y)]) empty.push([x, y]);
       while (Object.keys(data.villages).length < target && empty.length) {
         const [x, y] = empty.splice(rand(0, empty.length - 1), 1)[0];
@@ -181,7 +186,16 @@
       if (v.owner === "enemy" && !v.aiId) v.aiId = `ai-${v.id}`;
     });
     data.players = data.players || {};
-    data.version = Math.max(Number(data.version||1), 8);
+    // v9: coordenadas centradas em 0|0. Saves antigos 0..99 são deslocados sem perder movimentos.
+    if (C.mapOriginCentered && Number(data.version||1) < 9 && Object.values(data.villages).some(v => v.x > mapMaxX() || v.y > mapMaxY())) {
+      const dx=Math.floor(C.mapWidth/2), dy=Math.floor(C.mapHeight/2), remap={};
+      Object.values(data.villages).forEach(v=>{const old=v.id;v.x-=dx;v.y-=dy;v.id=id(v.x,v.y);remap[old]=v.id;});
+      data.villages=Object.fromEntries(Object.values(data.villages).map(v=>[v.id,v]));
+      (data.terrain||[]).forEach(c=>{c.x-=dx;c.y-=dy;});
+      (data.movements||[]).forEach(m=>{m.fromId=remap[m.fromId]||m.fromId;m.targetId=remap[m.targetId]||m.targetId;});
+      data.activeVillageId=remap[data.activeVillageId]||data.activeVillageId;
+    }
+    data.version = Math.max(Number(data.version||1), 9);
     if (!data.terrain || data.terrain.length !== C.mapWidth * C.mapHeight)
       data.terrain = makeTerrain();
     if (!data.lastAiAction) data.lastAiAction = Date.now();
@@ -220,6 +234,7 @@
         .filter((q) => C.units[q.unit]);
     });
     data.movements = data.movements || [];
+    data.combatStats = data.combatStats || {};
     data.reports = data.reports || [];
     data.settings.objective =
       data.settings.objective === "rivals" ? "map100" : data.settings.objective;
@@ -541,10 +556,14 @@
       ]),
     );
   }
+  function combatKey(v){ return v?.owner==="enemy" ? (v.aiId||`ai-${v.id}`) : v?.owner==="player" ? v.ownerId : null; }
+  function combatStat(key){ if(!key) return null; return state.combatStats[key]||(state.combatStats[key]={attackerPoints:0,defenderPoints:0,conquests:0}); }
+  function unitLossScore(units){ return Object.entries(units||{}).reduce((n,[k,q])=>n+q*((C.units[k]?.population||1)+(C.units[k]?.attack||0)/50),0); }
   function resolve(m) {
     const from = state.villages[m.fromId],
       target = state.villages[m.targetId];
     if (!from || !target) return;
+    const attackerKey=combatKey(from), defenderKey=combatKey(target);
     const attacker = { name: from.name, x: from.x, y: from.y, owner: from.owner || null },
       defender = { name: target.name, x: target.x, y: target.y, owner: target.owner || null },
       defenderBonus = { type: target.bonusType || "none", value: target.bonusType && target.bonusType !== "none" ? bonusValue(target, target.bonusType) : 0 },
@@ -597,6 +616,10 @@
             (win ? (1 - ratio) * 0.15 : 0.68 + 0.25 * (1 - ratio)),
         )),
     );
+    const atkLosses=losses(attackBefore,survivors), defLosses=losses(defBefore,target.units);
+    const ast=combatStat(attackerKey), dst=combatStat(defenderKey);
+    if(ast) ast.attackerPoints += Math.round(unitLossScore(defLosses));
+    if(dst) dst.defenderPoints += Math.round(unitLossScore(atkLosses));
     const loyaltyBefore = Math.max(0, Number(target.loyalty ?? C.baseLoyalty));
     let loot = { wood: 0, clay: 0, iron: 0 },
       conquered = false,
@@ -648,6 +671,7 @@
           target.name = `Fortaleza ${target.x}|${target.y}`;
           survivors.noble--;
           conquered = true;
+          if(ast) ast.conquests=(ast.conquests||0)+1;
           // Só avisa o usuário quando a aldeia conquistada era realmente dele.
           if (defenderOwnerBefore === "player" && defenderOwnerIdBefore === currentPlayerId())
             notify(`${target.name} foi conquistada pelo inimigo!`, "danger");
@@ -684,6 +708,8 @@
       time: Date.now(),
       type: win ? "win" : "loss",
       victory: win,
+      attackerPlayerId: from.owner === "player" ? from.ownerId : null,
+      defenderPlayerId: defenderOwnerBefore === "player" ? defenderOwnerIdBefore : null,
       attacker,
       defender,
       defenderBonus,
@@ -811,7 +837,7 @@
     if(now-(state.lastBarbarianSpawn||state.createdAt||now)<interval) return;
     const spawned=Number(state.spawnedBarbarians||0), max=Math.max(0,Number(cfg.maxNewVillages)||20); if(spawned>=max) return;
     let amount=Math.min(Math.max(1,Number(cfg.perCycle)||1),max-spawned), tries=0;
-    while(amount>0 && tries++<500){ const x=rand(0,C.mapWidth-1),y=rand(0,C.mapHeight-1); if(state.villages[id(x,y)]) continue; const v=makeVillage(x,y,null,state.settings); if(Math.random()*100 < (Number(cfg.bonusChance)||15)) v.bonusType=rollBonus(null,{...state.settings.bonus,chance:100}); state.villages[v.id]=v; amount--; state.spawnedBarbarians=(state.spawnedBarbarians||0)+1; }
+    while(amount>0 && tries++<500){ const x=rand(mapMinX(),mapMaxX()),y=rand(mapMinY(),mapMaxY()); if(state.villages[id(x,y)]) continue; const v=makeVillage(x,y,null,state.settings); if(cfg.maximized) Object.entries(C.buildings).forEach(([k,b])=>v.buildings[k]=b.maxLevel); if(Math.random()*100 < (Number(cfg.bonusChance)||15)) v.bonusType=rollBonus(null,{...state.settings.bonus,chance:100}); state.villages[v.id]=v; amount--; state.spawnedBarbarians=(state.spawnedBarbarians||0)+1; }
     state.lastBarbarianSpawn=now;
   }
   function adminSpawnNow(){ if(!isAdmin()) return; const cfg=state.settings.barbarianSpawn||{}; state.lastBarbarianSpawn=Date.now()-(Math.max(1,Number(cfg.intervalMinutes)||30)*60000)-1; const before=state.spawnedBarbarians||0; spawnBarbarians(Date.now()); S.save(state); notify((state.spawnedBarbarians||0)>before?"Ciclo de nascimento executado.":"Nenhuma aldeia foi gerada: verifique limite, ativação e espaços vazios.",(state.spawnedBarbarians||0)>before?"success":"warning"); saveRender(); }
@@ -903,8 +929,8 @@
     }
   }
   function adminCreateVillage(data) {
-    const x = Math.max(0, Math.min(C.mapWidth - 1, Math.floor(Number(data.x))));
-    const y = Math.max(0, Math.min(C.mapHeight - 1, Math.floor(Number(data.y))));
+    const x = Math.max(mapMinX(), Math.min(mapMaxX(), Math.floor(Number(data.x))));
+    const y = Math.max(mapMinY(), Math.min(mapMaxY(), Math.floor(Number(data.y))));
     if (state.villages[id(x,y)]) return notify("Já existe uma aldeia nessas coordenadas.", "warning");
     const v = makeVillage(x, y, data.owner || null, state.settings);
     v.name = String(data.name || `Aldeia ${x}|${y}`).trim().slice(0,40);
@@ -914,6 +940,9 @@
     ["wood","clay","iron"].forEach(r => { if (data.resources?.[r] !== undefined) v.resources[r] = Math.max(0, Number(data.resources[r]) || 0); });
     state.villages[v.id] = v; saveRender(); notify("Nova aldeia criada."); return v.id;
   }
+
+  function adminCreateRandomVillages(data,count=1){ if(!isAdmin())return 0; let made=0,tries=0; const wanted=Math.max(1,Math.min(500,Number(count)||1)); while(made<wanted&&tries++<10000){const x=rand(mapMinX(),mapMaxX()),y=rand(mapMinY(),mapMaxY());if(state.villages[id(x,y)])continue;const v=makeVillage(x,y,data.owner||null,state.settings);v.name=`${String(data.name||"Nova aldeia").trim().slice(0,32)} ${made+1}`;v.bonusType=C.bonusTypes[data.bonusType]?data.bonusType:"none";Object.keys(C.buildings).forEach(k=>{if(data.buildings?.[k]!==undefined)v.buildings[k]=Math.max(0,Math.min(C.buildings[k].maxLevel,Math.floor(Number(data.buildings[k])||0)))});const fixed=clampAdminUnits(v,data.units||{});v.units=fixed.units;["wood","clay","iron"].forEach(r=>{if(data.resources?.[r]!==undefined)v.resources[r]=Math.max(0,Number(data.resources[r])||0)});if(v.owner==="enemy"){v.aiId=`ai-${v.id}`;v.aiProfile=["offensive","defensive","economic","expansive"][made%4];}state.villages[v.id]=v;made++;}S.save(state);saveRender();notify(`${made} aldeia(s) criada(s) em coordenadas aleatórias.`);return made;}
+  function adminMaximizeSpawnCycle(){ if(!isAdmin())return; const cfg=state.settings.barbarianSpawn||{}; state.settings.barbarianSpawn={...cfg,maximized:true}; S.save(state); notify("Ciclo de aldeias ajustado para mundo maximizado."); saveRender();}
   function clampAdminUnits(v, desired) {
     const out={};
     Object.keys(C.units).forEach(k=>out[k]=Math.max(0,Math.floor(Number(desired?.[k] ?? v.units?.[k] ?? 0)||0)));
@@ -1010,7 +1039,7 @@
     let mine=Object.values(state.villages).filter(v=>v.owner==="player"&&v.ownerId===pid);
     if(!mine.length && sess.role==="player") {
       const occupied=new Set(Object.keys(state.villages)); let spots=[];
-      for(let y=0;y<C.mapHeight;y++) for(let x=0;x<C.mapWidth;x++) if(!occupied.has(id(x,y))) spots.push([x,y]);
+      for(let y=mapMinY();y<=mapMaxY();y++) for(let x=mapMinX();x<=mapMaxX();x++) if(!occupied.has(id(x,y))) spots.push([x,y]);
       if(!spots.length) return notify("Não há espaço livre para uma nova aldeia.","danger");
       const [x,y]=spots[rand(0,spots.length-1)]; const v=makeVillage(x,y,"player",state.settings);
       v.ownerId=pid; v.name=`Aldeia de ${sess.username}`; v.buildings={...Object.fromEntries(Object.keys(C.buildings).map(k=>[k,0])),...clone(state.settings.initialBuildingLevels)};
@@ -1060,7 +1089,7 @@
     population,
     popCap,
     prod,
-    points, maxVillagePoints, adminSpawnNow,
+    points, maxVillagePoints, adminSpawnNow, adminMaximizeSpawnCycle,
     buildingPoints,
     buildingCost,
     buildingTime,
@@ -1076,7 +1105,7 @@
     clearReports() { const pid=currentPlayerId(); state.reports = isAdmin() ? [] : state.reports.filter(r => !(r.recipients||[]).includes(pid) && r.playerId !== pid); saveRender(); },
     adminUpdate,
     adminIdentity,
-    adminCreateVillage,
+    adminCreateVillage, adminCreateRandomVillages,
     adminFinishBuild, adminFinishTraining, adminFinishAll,
     syncEnemies,
     renameVillage,

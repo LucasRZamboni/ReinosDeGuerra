@@ -24,7 +24,8 @@ window.GAME_CONFIG = {
   mapHeight: 100,
   villageDensity: 0.09,
   startingResources: { wood: 500, clay: 500, iron: 400 },
-  startingVillage: { name: "Aldeia de jogador", x: 50, y: 50 },
+  startingVillage: { name: "Aldeia de jogador", x: 0, y: 0 },
+  mapOriginCentered: true,
   // Pontuação-base de toda aldeia inicial. Fazenda, Armazém e Praça de Reuniões
   // começam funcionais, mas seus níveis iniciais não entram na pontuação-base.
   startingVillagePoints: 28,
@@ -49,7 +50,7 @@ window.GAME_CONFIG = {
   unlimitedBuildQueue: false,
   enemiesEnabled: false,
   enemyCount: 0,
-  barbarianSpawn: { enabled: true, intervalMinutes: 30, maxNewVillages: 20, perCycle: 1, bonusChance: 15 },
+  barbarianSpawn: { enabled: true, intervalMinutes: 30, maxNewVillages: 20, perCycle: 1, bonusChance: 15, maximized: false },
   enemyRules: {
     canAttackPlayers: true,
     canAttackBarbarians: true,
