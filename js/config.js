@@ -20,8 +20,8 @@ window.GAME_CONFIG = {
   buildCostMultiplier: 1,
   buildTimeMultiplier: 1,
   travelSecondsPerTile: 12,
-  mapWidth: 80,
-  mapHeight: 80,
+  mapWidth: 100,
+  mapHeight: 100,
   villageDensity: 0.08,
   startingResources: { wood: 800, clay: 800, iron: 800 },
   startingVillage: { name: "Aldeia de jogador", x: 0, y: 0 },
@@ -31,9 +31,9 @@ window.GAME_CONFIG = {
   startingVillagePoints: 28,
   // Todos os edifícios aparecem aqui para facilitar a personalização da pontuação inicial.
   // O valor indica quantos níveis iniciais são gratuitos para a pontuação.
-  minimumAttackPopulation: 6,
+  minimumAttackPopulation: 10,
   // Regras centralizadas: a interface e o motor devem ler estes valores, evitando hardcodes divergentes.
-  combatRules: { minimumAttackPopulation: 6, nobleLoyaltyHitsPerCommand: 1 },
+  combatRules: { minimumAttackPopulation: 10, nobleLoyaltyHitsPerCommand: 1 },
   trainingRules: { independentFacilities: true, releaseUnitByUnit: true, facilities: ["barracks", "stable", "workshop", "academy", "statue"] },
   heroRules: { enabled: true, maxPerOwner: 1, statueOnlyFirstVillage: true, allowBarbarians: false, allowBonusVillages: false },
   aiProfiles: {
@@ -116,6 +116,17 @@ window.GAME_CONFIG = {
     { id: "conq500", name: "Conquistar 500 aldeias", category: "conquest", repeat: "once", type: "conquests", target: 500, reward: { noblePerAcademy: 4 } },
     { id: "pts500k", name: "Alcançar 500.000 pontos", category: "points", repeat: "once", type: "points", target: 500000, reward: { storagePercent: 100, scope: "all" } },
     { id: "pts1m", name: "Alcançar 1.000.000 de pontos", category: "points", repeat: "once", type: "points", target: 1000000, reward: { nobleTopAcademies: 4, academyCount: 10 } },
+    { id:"leader", name:"Líder", category:"military", type:"enemyPopulationDefeated", target:10000, repeat:"once", tiers:[10000,100000,1000000,20000000] },
+    { id:"plunderer", name:"Saqueador", category:"military", type:"villagesPlundered", target:10, repeat:"once", tiers:[10,100,1000,10000] },
+    { id:"thief", name:"Ladrão", category:"military", type:"resourcesPlundered", target:500, repeat:"once", tiers:[500,10000,1000000,100000000] },
+    { id:"warlord", name:"Comandante de Guerra", category:"military", type:"uniqueEnemiesAttacked", target:10, repeat:"once", tiers:[10,25,100,250] },
+    { id:"vandal", name:"Vândalo", category:"military", type:"catapultLevelsDestroyed", target:25, repeat:"once", tiers:[25,100,500,2500] },
+    { id:"wallbreaker", name:"Destruidor de Muralhas", category:"military", type:"wallLevelsDestroyed", target:25, repeat:"once", tiers:[25,100,500,2500] },
+    { id:"nobleHunter", name:"Caçador de Nobres", category:"military", type:"noblesDefeated", target:1, repeat:"once", tiers:[1,10,50,250] },
+    { id:"battleMaster", name:"Mestre do Campo de Batalha", category:"military", type:"armiesDestroyed", target:1, repeat:"once", tiers:[1,10,100,500] },
+    { id:"architect", name:"Arquiteto", category:"development", type:"buildingLevelsBuilt", target:50, repeat:"once", tiers:[50,250,1000,5000] },
+    { id:"recruiter", name:"Recrutador", category:"military", type:"unitsRecruited", target:1000, repeat:"once", tiers:[1000,10000,100000,1000000] },
+    { id:"marketGuru", name:"Guru do Mercado", category:"market", type:"marketTrades", target:10, repeat:"once", tiers:[10,100,1000,10000] },
   ],
   baseLoyalty: 100,
   bonusDefaults: { chance: 15, wood: 30, clay: 30, iron: 30, farm: 10, resources: 15, barracks: 10, stable: 10, storage: 50 },
@@ -163,6 +174,17 @@ window.GAME_CONFIG = {
     map100: { name: "Conquistar todo o mundo", type: "percentage", target: 100 }
   },
   ai: { actionIntervalSeconds: 25 },
+  beginnerProtection: { enabled: true, minutes: 15 },
+  marketServer: { enabled: true, capacityPerResource: 600000, exchangeRate: 1, regenerationMultiplier: 1 },
+  worldPresets: {
+    casual: { label:"Casual", productionMultiplier:1, buildTimeMultiplier:1, recruitmentMultiplier:1, unitSpeedMultiplier:1, aiActionIntervalSeconds:40, marketRegenerationMultiplier:.75, protectionMinutes:15 },
+    classic: { label:"Clássico", productionMultiplier:1, buildTimeMultiplier:1, recruitmentMultiplier:1, unitSpeedMultiplier:1, aiActionIntervalSeconds:25, marketRegenerationMultiplier:1, protectionMinutes:15 },
+    fast: { label:"Rápido", productionMultiplier:3, buildTimeMultiplier:.34, recruitmentMultiplier:3, unitSpeedMultiplier:2, aiActionIntervalSeconds:18, marketRegenerationMultiplier:3, protectionMinutes:15 },
+    war: { label:"Guerra", productionMultiplier:5, buildTimeMultiplier:.2, recruitmentMultiplier:5, unitSpeedMultiplier:3, aiActionIntervalSeconds:12, marketRegenerationMultiplier:5, protectionMinutes:15 },
+    conquerors: { label:"Conquistadores", productionMultiplier:10, buildTimeMultiplier:.1, recruitmentMultiplier:10, unitSpeedMultiplier:5, aiActionIntervalSeconds:10, marketRegenerationMultiplier:10, protectionMinutes:15, duration:"unlimited", objective:"enemyAll" },
+    custom: { label:"Personalizado" }
+  },
+  recurringAttacks: { enabled:true, minimumIntervalSeconds:60, maxDurationHours:168 },
   bonusTypes: {
     none: { name: "Sem bônus", icon: "" },
     wood: { name: "Madeira", icon: "🪵" },

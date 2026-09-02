@@ -328,3 +328,22 @@ Os antigos `villageMilestones` foram incorporados a `GAME_CONFIG.achievements`. 
 - Aldeias iniciais voltam a começar com **28 pontos**: Principal 1 (10) + Bosque 1 (6) + Barreiro 1 (6) + Mina 1 (6).
 - Corrigida a configuração legada de níveis gratuitos que descontava o Principal e fazia aparecer 18 pontos.
 - Mundos iniciam sempre com inimigos ativos e **mínimo de 5 IAs**. `enemyCount` passa a representar identidades de IA, não o total de aldeias conquistadas por elas.
+
+## Atualização consolidada — Mercado, Conquistas, Simulador, Ataques recorrentes e Mobile (02/09/2026)
+
+- Mercado global com 600.000 de capacidade por recurso, trocas 1:1 e regeneração por segundo baseada na produção média das aldeias do mundo.
+- Configurações de Mercado, proteção inicial de 15 minutos e presets Casual, Clássico, Rápido, Guerra, Conquistadores e Personalizado.
+- Conquistadores usa duração sem limite por padrão e objetivo de eliminar todos os inimigos.
+- Moral e bônus noturno não fazem parte das regras do mundo.
+- Novas famílias de Conquistas: Líder, Saqueador, Ladrão, Comandante de Guerra, Vândalo, Destruidor de Muralhas, Caçador de Nobres, Mestre do Campo de Batalha, Arquiteto, Recrutador e Guru do Mercado.
+- Badge no menu quando há Conquista disponível e modal no desbloqueio.
+- Aldeia em modo Lista redesenhada para mobile sem tabela horizontal; edifícios e botão Evoluir ficam na largura da tela.
+- Modo Ilustração pode exibir nome compacto junto ao nível, com opção de ocultar nomes.
+- Recursos do cabeçalho quebram em linhas no mobile em vez de extrapolar a viewport.
+- Avisos de ações bloqueadas usam modal informativo no mobile.
+- Simulador de Combate usa o resolvedor real sobre cópia temporária do mundo; possui preenchimento manual e presets Ataque/Defesa, sem atalho Ataque + Nobres.
+- Admin pode carregar tropas atuais de uma aldeia no Simulador.
+- Relatórios com tropas espionadas ou sobreviventes oferecem envio direto desses dados ao Simulador, mantendo a data do snapshot.
+- Programação recorrente de ataques: intervalo, duração total (0 = sem limite), múltiplas origens, alvos por relatório ou coordenada manual, histórico de falhas e verificação das tropas realmente disponíveis em cada disparo.
+- Admin vê todos os alvos na programação recorrente; jogadores veem automaticamente alvos presentes em seus relatórios e ainda podem digitar coordenadas manualmente.
+- Mapa restaurado para 100x100 e população militar mínima de ataque para 10.

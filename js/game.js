@@ -46,7 +46,9 @@
       barbarianSpawn: clone(C.barbarianSpawn || {enabled:true,intervalMinutes:30,maxNewVillages:20,perCycle:1,bonusChance:15,maximized:false}),
       enemyRules: clone(C.enemyRules || {}),
       buildingPresets: clone(C.buildingPresets || {halfRatio:.5,custom:null}),
-      newPlayerProtectionHours: C.newPlayerProtectionHours ?? 72,
+      beginnerProtection: clone(C.beginnerProtection || {enabled:true,minutes:15}),
+      marketServer: clone(C.marketServer || {enabled:true,capacityPerResource:600000,exchangeRate:1,regenerationMultiplier:1}),
+      worldPreset: "classic",
       victoryRules: clone(C.victoryRules || {enabled:true,type:"villages",target:10}),
       initialBuildingLevels: clone(C.initialBuildingLevels),
       freeStartingPointLevels: clone(C.freeStartingPointLevels),
@@ -69,6 +71,8 @@
       aiProfiles: { ...d.aiProfiles, ...(options.aiProfiles || {}) },
       ai: { ...d.ai, ...(options.ai || {}), actionIntervalSeconds: Number(options.ai?.actionIntervalSeconds ?? options.enemyRules?.actionIntervalSeconds ?? d.ai.actionIntervalSeconds) || 25 },
       periodicResourceBonus: { ...d.periodicResourceBonus, ...(options.periodicResourceBonus || {}) },
+      beginnerProtection: { ...d.beginnerProtection, ...(options.beginnerProtection || {}) },
+      marketServer: { ...d.marketServer, ...(options.marketServer || {}) },
       victoryRules: { ...d.victoryRules, ...(options.victoryRules || {}) },
       initialBuildingLevels: { ...d.initialBuildingLevels, ...(options.initialBuildingLevels || {}) },
       freeStartingPointLevels: { ...d.freeStartingPointLevels, ...(options.freeStartingPointLevels || {}) },
@@ -163,6 +167,8 @@
       aiDiagnostics: {},
       defeatedEnemies: [],
       achievements: {},
+      market: { resources:{wood:600000,clay:600000,iron:600000}, lastUpdate:Date.now(), trades:0 },
+      recurringAttacks: [],
       reports: [
         {
           id: `info-${Date.now()}`,
@@ -278,6 +284,8 @@
     data.movements = data.movements || [];
     data.combatStats = data.combatStats || {};
     data.reports = data.reports || [];
+    data.market = data.market || {resources:{wood:600000,clay:600000,iron:600000},lastUpdate:Date.now(),trades:0};
+    data.recurringAttacks = data.recurringAttacks || [];
     data.supportStationed = data.supportStationed || {}; data.aiDiagnostics = data.aiDiagnostics || {};
     Object.values(data.villages).forEach(v=>{ if(v.owner==="player" && !v.protectionUntil && v.ownerId && v.ownerId!=="admin") v.protectionUntil=0; });
     data.settings.objective =
@@ -460,6 +468,7 @@
       start,
       end: start + (buildingTime(k, projected) * 1000) / state.speed,
     });
+    const bst=combatStat(combatKey(v)); if(bst)bst.buildingLevelsBuilt=(bst.buildingLevelsBuilt||0)+1;
     saveRender();
   }
   function trainingFacility(k) {
@@ -509,6 +518,7 @@
     if (population(v) + u.population * amount > popCap(v))
       return notify("População insuficiente.", "warning");
     if (!enqueueRecruit(v,k,amount)) return notify("Não foi possível adicionar o treinamento.", "warning");
+    const rst=combatStat(combatKey(v)); if(rst)rst.unitsRecruited=(rst.unitsRecruited||0)+amount;
     saveRender();
   }
   function strength(
@@ -653,7 +663,7 @@
     );
   }
   function combatKey(v){ return v?.owner==="enemy" ? (v.aiId||`ai-${v.id}`) : v?.owner==="player" ? v.ownerId : null; }
-  function combatStat(key){ if(!key) return null; return state.combatStats[key]||(state.combatStats[key]={attackerPoints:0,defenderPoints:0,conquests:0}); }
+  function combatStat(key){ if(!key) return null; return state.combatStats[key]||(state.combatStats[key]={attackerPoints:0,defenderPoints:0,conquests:0,enemyPopulationDefeated:0,villagesPlundered:0,resourcesPlundered:0,uniqueEnemiesAttacked:[],catapultLevelsDestroyed:0,wallLevelsDestroyed:0,noblesDefeated:0,armiesDestroyed:0,buildingLevelsBuilt:0,unitsRecruited:0,marketTrades:0}); }
   function unitLossScore(units){ return Object.entries(units||{}).reduce((n,[k,q])=>n+q*(C.units[k]?.population||1),0); }
   function sendSupport(targetId, units) {
     const from=active(), target=state.villages[targetId]; if(!from||!target) return notify("Destino inválido.","warning");
@@ -729,7 +739,7 @@
     );
     const atkLosses=losses(attackBefore,survivors), defLosses=losses(defBefore,target.units);
     const ast=combatStat(attackerKey), dst=combatStat(defenderKey);
-    if(ast) ast.attackerPoints += Math.round(unitLossScore(defLosses));
+    if(ast){ ast.attackerPoints += Math.round(unitLossScore(defLosses)); ast.enemyPopulationDefeated=(ast.enemyPopulationDefeated||0)+unitLossScore(defLosses); ast.noblesDefeated=(ast.noblesDefeated||0)+(defLosses.noble||0); ast.uniqueEnemiesAttacked=ast.uniqueEnemiesAttacked||[]; if(defenderKey&&!ast.uniqueEnemiesAttacked.includes(defenderKey))ast.uniqueEnemiesAttacked.push(defenderKey); if(Object.values(target.units).every(q=>!q))ast.armiesDestroyed=(ast.armiesDestroyed||0)+1; }
     if(dst) dst.defenderPoints += Math.round(unitLossScore(atkLosses));
     const loyaltyBefore = Math.max(0, Number(target.loyalty ?? C.baseLoyalty));
     let loot = { wood: 0, clay: 0, iron: 0 },
@@ -742,16 +752,17 @@
         (n, [k, q]) => n + q * C.units[k].carry,
         0,
       );
+      if(ast)ast.villagesPlundered=(ast.villagesPlundered||0)+1;
       ["wood", "clay", "iron"].forEach((r) => {
         loot[r] = Math.min(target.resources[r], Math.floor(capacity / 3));
         target.resources[r] -= loot[r];
-        from.resources[r] = Math.min(cap(from), from.resources[r] + loot[r]);
+        from.resources[r] = Math.min(cap(from), from.resources[r] + loot[r]); if(ast)ast.resourcesPlundered=(ast.resourcesPlundered||0)+loot[r];
       });
       if ((attackBefore.ram || 0) > 0) {
         const before = target.buildings.wall || 0,
           damage = Math.max(1, Math.floor(attackBefore.ram / 20));
         target.buildings.wall = Math.max(0, before - damage);
-        siege.ram = { building: "wall", before, after: target.buildings.wall, levelsDestroyed: before - target.buildings.wall, sent: attackBefore.ram };
+        siege.ram = { building: "wall", before, after: target.buildings.wall, levelsDestroyed: before - target.buildings.wall, sent: attackBefore.ram }; if(ast)ast.wallLevelsDestroyed=(ast.wallLevelsDestroyed||0)+(before-target.buildings.wall);
       }
       if ((attackBefore.catapult || 0) > 0) {
         const targets = Object.keys(C.buildings).filter(
@@ -764,7 +775,7 @@
             minimum = ["keep", "farm", "storage"].includes(chosen) ? 1 : 0,
             damage = Math.max(1, Math.floor(attackBefore.catapult / 25));
           target.buildings[chosen] = Math.max(minimum, before - damage);
-          siege.catapult = { building: chosen, before, after: target.buildings[chosen], levelsDestroyed: before - target.buildings[chosen], sent: attackBefore.catapult };
+          siege.catapult = { building: chosen, before, after: target.buildings[chosen], levelsDestroyed: before - target.buildings[chosen], sent: attackBefore.catapult }; if(ast)ast.catapultLevelsDestroyed=(ast.catapultLevelsDestroyed||0)+(before-target.buildings[chosen]);
         }
       }
       if ((survivors.noble || 0) > 0) {
@@ -833,6 +844,7 @@
       attacker,
       defender,
       defenderBonus,
+      targetId: target.id, fromId: from.id,
       attacking: {
         before: attackBefore,
         losses: losses(attackBefore, survivors),
@@ -945,6 +957,9 @@
     if(a.type==="conquests") return state.combatStats?.[key]?.conquests||0;
     if(a.type==="hero") return villages.reduce((n,v)=>n+(v.units.paladin||0),0);
     if(a.type==="nobles") return villages.reduce((n,v)=>n+(v.units.noble||0),0);
+    const cs=state.combatStats?.[key]||{};
+    if(a.type==="uniqueEnemiesAttacked") return (cs.uniqueEnemiesAttacked||[]).length;
+    if(["enemyPopulationDefeated","villagesPlundered","resourcesPlundered","catapultLevelsDestroyed","wallLevelsDestroyed","noblesDefeated","armiesDestroyed","buildingLevelsBuilt","unitsRecruited","marketTrades"].includes(a.type)) return Number(cs[a.type])||0;
     return 0;
   }
   function achievementState(key=currentPlayerId()){ return state.achievements[key]||(state.achievements[key]={}); }
@@ -960,8 +975,8 @@
     if(!key) return;
     const villages=Object.values(state.villages).filter(v=>combatKey(v)===key);
     (C.achievements||[]).forEach(a=>{
-      if(a.repeat==="perVillage") villages.forEach(v=>{const e=achievementEntry(a,key,v.id);if(!e.claimed&&achievementProgress(a,key,v.id)>=a.target)e.unlocked=true;});
-      else {const e=achievementEntry(a,key);if(!e.claimed&&achievementProgress(a,key)>=a.target)e.unlocked=true;}
+      if(a.repeat==="perVillage") villages.forEach(v=>{const e=achievementEntry(a,key,v.id);if(!e.claimed&&achievementProgress(a,key,v.id)>=a.target&&!e.unlocked){e.unlocked=true;e.unlockedAt=Date.now();if(key===currentPlayerId())window.dispatchEvent(new CustomEvent("achievement-unlocked",{detail:{name:a.name,village:v.name}}));}});
+      else {const e=achievementEntry(a,key);if(!e.claimed&&achievementProgress(a,key)>=a.target&&!e.unlocked){e.unlocked=true;e.unlockedAt=Date.now();if(key===currentPlayerId())window.dispatchEvent(new CustomEvent("achievement-unlocked",{detail:{name:a.name}}));}}
     });
   }
   function canApplyReward(v,reward){
@@ -1025,9 +1040,35 @@
   }
   function adminSpawnNow(){ if(!isAdmin()) return; const cfg=state.settings.barbarianSpawn||{}; state.lastBarbarianSpawn=Date.now()-(Math.max(1,Number(cfg.intervalMinutes)||30)*60000)-1; const before=state.spawnedBarbarians||0; spawnBarbarians(Date.now()); S.save(state); notify((state.spawnedBarbarians||0)>before?"Ciclo de nascimento executado.":"Nenhuma aldeia foi gerada: verifique limite, ativação e espaços vazios.",(state.spawnedBarbarians||0)>before?"success":"warning"); saveRender(); }
 
+  function simulateCombat(attUnits,defUnits,wall=0,catapultTarget=null){
+    const original=state;try{state=clone(original);const a=makeVillage(mapMinX(),mapMinY(),"player",state.settings),d=makeVillage(mapMinX()+1,mapMinY(),"enemy",state.settings);a.id="__sim_a";d.id="__sim_d";a.ownerId=currentPlayerId();a.units={...emptyUnits(),...clone(attUnits||{})};d.units={...emptyUnits(),...clone(defUnits||{})};d.buildings.wall=Math.max(0,Math.min(20,Number(wall)||0));d.resources={wood:0,clay:0,iron:0};state.villages[a.id]=a;state.villages[d.id]=d;const before=state.reports.length;resolve({id:"__sim",kind:"attack",fromId:a.id,targetId:d.id,units:clone(a.units),catapultTarget,outbound:true,start:Date.now(),end:Date.now()});const report=state.reports[0];return report&&state.reports.length>before?clone(report):null;}finally{state=original;}
+  }
+  function updateMarket(now=Date.now()){
+    const cfg=state.settings.marketServer||C.marketServer||{}; if(cfg.enabled===false)return;
+    state.market=state.market||{resources:{wood:0,clay:0,iron:0},lastUpdate:now,trades:0};
+    const elapsed=Math.max(0,(now-(state.market.lastUpdate||now))/1000); if(!elapsed)return;
+    const villages=Object.values(state.villages), avg={wood:0,clay:0,iron:0};
+    ["wood","clay","iron"].forEach(r=>{avg[r]=villages.length?villages.reduce((n,v)=>n+prod(v,r),0)/villages.length:0;});
+    const max=Number(cfg.capacityPerResource)||600000,m=Number(cfg.regenerationMultiplier)||1;
+    ["wood","clay","iron"].forEach(r=>state.market.resources[r]=Math.min(max,(state.market.resources[r]||0)+avg[r]/60*elapsed*m)); state.market.lastUpdate=now;
+  }
+  function marketExchange(give,take,amount){
+    updateMarket(); const v=active(),cfg=state.settings.marketServer||C.marketServer||{},n=Math.floor(Number(amount)||0),rate=Number(cfg.exchangeRate)||1,receive=Math.floor(n*rate);
+    if(!v||!["wood","clay","iron"].includes(give)||!["wood","clay","iron"].includes(take)||give===take||n<=0)return {ok:false,msg:"Informe uma troca válida."};
+    if((v.resources[give]||0)<n)return {ok:false,msg:"Recursos insuficientes na aldeia."}; if((state.market.resources[take]||0)<receive)return {ok:false,msg:"O Mercado não possui estoque suficiente."}; if((v.resources[take]||0)+receive>cap(v))return {ok:false,msg:"O Armazém não possui espaço para receber a troca."};
+    v.resources[give]-=n;v.resources[take]+=receive;state.market.resources[give]=Math.min(Number(cfg.capacityPerResource)||600000,(state.market.resources[give]||0)+n);state.market.resources[take]-=receive;state.market.trades=(state.market.trades||0)+1;const st=combatStat(currentPlayerId());if(st)st.marketTrades=(st.marketTrades||0)+1;S.save(state);refreshAchievements();return {ok:true,receive};
+  }
+  function createRecurringAttack(o){
+    const origins=(o.origins||[]).filter(id=>isMine(state.villages[id])),targets=(o.targets||[]).filter(id=>state.villages[id]); if(!origins.length||!targets.length)return false;
+    const interval=Math.max((C.recurringAttacks?.minimumIntervalSeconds||60)*1000,Number(o.intervalMs)||300000),duration=Number(o.durationMs)||0,now=Date.now();state.recurringAttacks.push({id:`rec-${now}-${Math.random()}`,ownerId:currentPlayerId(),origins,targets,units:clone(o.units||{}),intervalMs:interval,startAt:now,endAt:duration?now+duration:0,nextAt:now,status:"active",attempts:0,sent:0,failed:0,history:[]});S.save(state);return true;
+  }
+  function toggleRecurringAttack(id,action){const x=state.recurringAttacks.find(x=>x.id===id&&x.ownerId===currentPlayerId());if(!x)return;if(action==="cancel")x.status="cancelled";else if(action==="pause")x.status="paused";else if(action==="resume"){x.status="active";x.nextAt=Date.now();}S.save(state);}
+  function processRecurring(now){(state.recurringAttacks||[]).forEach(x=>{if(x.status!=="active"||now<x.nextAt)return;if(x.endAt&&now>x.endAt){x.status="finished";return;}x.attempts++;let cycleSent=0;x.origins.forEach(oid=>{const from=state.villages[oid];if(!from||!isMine(from))return;x.targets.forEach(tid=>{const enough=Object.entries(x.units).every(([k,q])=>(from.units[k]||0)>=q);if(!enough){x.failed++;x.history.unshift({time:now,origin:oid,target:tid,status:"failed",reason:"Tropas insuficientes"});return;}if(scheduleAttackFrom(oid,tid,x.units,now+1000,"departure")){x.sent++;cycleSent++;x.history.unshift({time:now,origin:oid,target:tid,status:"sent"});}else{x.failed++;x.history.unshift({time:now,origin:oid,target:tid,status:"failed",reason:"Comando não pôde ser enviado"});}});});x.nextAt+=x.intervalMs;if(x.endAt&&x.nextAt>x.endAt)x.status="finished";x.history=x.history.slice(0,50);});}
   function process(now, dt) {
     let changed = false;
     if (!state.paused) {
+      updateMarket(now);
+      processRecurring(now);
       // Processa economia e filas de TODAS as aldeias. Isso mantém bárbaras, bônus e inimigas
       // sob as mesmas regras de produção/construção do jogador.
       Object.values(state.villages).forEach((v) => {
@@ -1288,7 +1329,7 @@
     const [x,y]=spots[rand(0,spots.length-1)], v=makeVillage(x,y,"player",state.settings);
     v.ownerId=pid; v.name=`Aldeia de ${sess.username}`;
     v.buildings={...Object.fromEntries(Object.keys(C.buildings).map(k=>[k,0])),...clone(state.settings.initialBuildingLevels)};
-    v.protectionUntil=Date.now()+Math.max(0,Number(state.settings.newPlayerProtectionHours)||0)*3600000; state.villages[v.id]=v; state.activeVillageId=v.id;
+    v.protectionUntil=state.settings.beginnerProtection?.enabled===false?0:Date.now()+Math.max(0,Number(state.settings.beginnerProtection?.minutes)||15)*60000; state.villages[v.id]=v; state.activeVillageId=v.id;
     state.players=state.players||{}; state.players[pid]={...(state.players[pid]||{}),id:pid,username:sess.username,role:sess.role,hasStarted:true,lastSeen:Date.now()};
     S.save(state); saveRender(); notify(`Nova aldeia fundada em ${x}|${y}.`,"success"); return v;
   }
@@ -1344,7 +1385,7 @@
     travelInfo,
     build,
     recruit,
-    sendAttack, scheduleAttack, scheduleAttackFrom, cancelScheduled, sendSupport, withdrawSupport,
+    sendAttack, scheduleAttack, scheduleAttackFrom, cancelScheduled, sendSupport, withdrawSupport, simulateCombat, marketExchange, updateMarket, createRecurringAttack, toggleRecurringAttack,
     markReportRead(id,read=true){const r=state.reports.find(x=>x.id===id);if(r){r.read=read;S.save(state);}},
     toggleReportFavorite(id){const r=state.reports.find(x=>x.id===id);if(r){r.favorite=!r.favorite;S.save(state);saveRender();}},
     deleteReports(ids){const set=new Set(ids);state.reports=state.reports.filter(r=>!set.has(r.id));saveRender();},
