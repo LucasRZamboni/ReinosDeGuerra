@@ -1042,7 +1042,7 @@
     }
     if (view === "admin") {
       const setAdminTab = (name) => {
-        const valid = ["world", "rules", "create", "village", "bulk"].includes(name) ? name : "world";
+        const valid = ["world", "rules", "create", "village", "bulk", "ai"].includes(name) ? name : "world";
         localStorage.setItem("rdg_admin_tab", valid);
         document.querySelectorAll("[data-admin-pane]").forEach(p => p.classList.toggle("d-none", p.dataset.adminPane !== valid));
         document.querySelectorAll(".admin-tab-btn").forEach(b => {
@@ -1360,6 +1360,13 @@
   //
   // As views completas são renderizadas apenas por navegação/ações explícitas do
   // usuário. Durante o processamento do mundo atualizamos somente elementos vivos.
+  // Delegação estável: relatórios continuam abrindo mesmo após filtros/atualizações parciais.
+  document.addEventListener("click", (e) => {
+    const b=e.target.closest?.(".report-summary[data-report-id]");
+    if(!b) return;
+    const r=visibleReports().find(x=>String(x.id)===String(b.dataset.reportId));
+    if(r){ e.preventDefault(); reportModal(r); }
+  });
   window.addEventListener("game-update", () => {
     updateLive();
     // Ações explícitas atualizam apenas a view atual; ticks continuam leves.

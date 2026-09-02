@@ -88,10 +88,11 @@ window.GAME_CONFIG = {
     halfRatio: 0.5,
     custom: null,
   },
+  periodicResourceBonus: { enabled: true, intervalMinutes: 20, amount: 1000, players: true, enemies: true, barbarians: true, bonusVillages: true },
   adminPresets: {
-    defenseTroops: { spear: 5000, sword: 5000, archer: 5000,scout: 500, heavy: 1000, catapult: 500 },
+    defenseTroops: { spear: 5000, sword: 5000, archer: 5000, scout: 250, heavy: 500, catapult: 250 },
     attackTroops: { axe: 7500, light: 3000,scout: 250, ram: 300 },
-    attackNoblesTroops: { axe: 7000, light: 2800, scout: 250, ram: 300, noble: 4 },
+    attackNoblesTroops: { axe: 6000, scout: 200, light: 3000, ram: 200, noble: 4 },
     customTroops: { spear: 1000, sword: 1000, axe: 1000, archer: 0, scout: 100, light: 500, mounted: 0, heavy: 0, ram: 100, catapult: 100, noble: 0 },
   },
   baseLoyalty: 100,

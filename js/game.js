@@ -420,6 +420,13 @@
     });
     saveRender();
   }
+  function trainingFacility(k) {
+    const req=C.units[k]?.requires||{};
+    if (k === "noble") return "academy";
+    if (k === "ram" || k === "catapult") return "workshop";
+    if (["scout","light","mounted","heavy","paladin"].includes(k)) return k === "paladin" ? "statue" : "stable";
+    return "barracks";
+  }
   function recruit(k, amount) {
     amount = Math.max(1, Math.floor(amount));
     const v = active(),
@@ -448,9 +455,11 @@
       return notify("População insuficiente.", "warning");
     pay(v, cost);
     const duration = (unitTrainTime(k, v) * 1000) / state.speed;
-    const start = v.trainQueue.length ? v.trainQueue.at(-1).end : Date.now();
+    const facility = trainingFacility(k);
+    const sameFacility = v.trainQueue.filter(q => (q.facility || trainingFacility(q.unit)) === facility);
+    const start = sameFacility.length ? sameFacility.at(-1).end : Date.now();
     v.trainQueue.push({
-      unit: k, amount, trained: 0, start,
+      unit: k, facility, amount, trained: 0, start,
       nextAt: start + duration,
       end: start + duration * amount,
       unitDuration: duration,
@@ -715,8 +724,9 @@
       if ((survivors.noble || 0) > 0) {
         // Cada nobre sobrevivente reduz entre os limites configurados.
         // O padrão é 25–35, portanto um único nobre normalmente exige cerca de 4 ataques.
-        for (let i = 0; i < survivors.noble && target.loyalty > 0; i++)
-          loyaltyDamage += rand(...C.conquestLoyaltyDamage);
+        // Um comando, independentemente da quantidade de Nobres, causa apenas
+        // uma redução de lealdade. Reduções múltiplas exigem comandos separados.
+        if (target.loyalty > 0) loyaltyDamage = rand(...C.conquestLoyaltyDamage);
         target.loyalty = Math.max(0, target.loyalty - loyaltyDamage);
         loyaltyAfter = target.loyalty;
         if (target.loyalty <= 0) {
@@ -927,20 +937,28 @@
           v.buildQueue.shift();
           changed = true;
         }
-        if (v.trainQueue[0]) {
-          const q = v.trainQueue[0];
+        // Filas independentes por edifício militar; somente o primeiro lote de
+        // cada edifício é processado, e as unidades são liberadas uma a uma.
+        const facilities = ["barracks","stable","workshop","academy","statue"];
+        facilities.forEach(facility => {
+          const q = v.trainQueue.find(x => (x.facility || trainingFacility(x.unit)) === facility);
+          if (!q) return;
+          q.facility = facility;
           q.trained = Math.max(0, Math.floor(q.trained || 0));
           q.unitDuration = q.unitDuration || ((unitTrainTime(q.unit, v) * 1000) / state.speed);
           q.nextAt = q.nextAt || (q.start || now) + q.unitDuration * (q.trained + 1);
           while (q.trained < q.amount && now >= q.nextAt) {
             v.units[q.unit] = (v.units[q.unit] || 0) + 1;
-            q.trained += 1;
-            q.nextAt += q.unitDuration;
-            changed = true;
+            q.trained += 1; q.nextAt += q.unitDuration; changed = true;
           }
-          if (q.trained >= q.amount) v.trainQueue.shift();
-        }
+          if (q.trained >= q.amount) v.trainQueue.splice(v.trainQueue.indexOf(q),1);
+        });
       });
+      { const br=C.periodicResourceBonus||{}; const interval=Math.max(1,Number(br.intervalMinutes)||20)*60000;
+        if(br.enabled!==false && (!state.lastPeriodicResourceBonus || now-state.lastPeriodicResourceBonus>=interval)){
+          Object.values(state.villages).forEach(v=>{ const isBonus=!v.owner&&v.bonusType&&v.bonusType!=="none"; const eligible=v.owner==="player"?br.players!==false:v.owner==="enemy"?br.enemies!==false:isBonus?br.bonusVillages!==false:br.barbarians!==false; if(!eligible)return; ["wood","clay","iron"].forEach(r=>v.resources[r]=Math.min(cap(v),Number(v.resources[r]||0)+(Number(br.amount)||1000))); });
+          state.lastPeriodicResourceBonus=now; changed=true;
+        } }
       state.movements.forEach(m=>{ if(m.scheduled && now>=m.departAt){ m.scheduled=false; m.kind="attack"; m.start=m.departAt; } });
       const due = state.movements.filter((m) => !m.scheduled && now >= m.end);
       state.movements = state.movements.filter((m) => m.scheduled || now < m.end);
@@ -986,7 +1004,9 @@
       changed = process(n, n - last);
     last = n;
     if (changed) {
-      saveRender();
+      // Mudanças automáticas do mundo não podem reconstruir a interface.
+      S.save(state);
+      window.dispatchEvent(new Event("game-tick"));
       lastSave = n;
     } else {
       if (n - lastSave >= (C.autosaveMs || 10000)) {

@@ -290,3 +290,9 @@ Os itens abaixo foram identificados durante os testes posteriores e estão regis
 ## Observação sobre o simulador de balanceamento
 
 Foi discutida a criação de um simulador administrativo de 1h, 6h, 12h, 1 dia, 3 dias e 7 dias para testar economia, IA, ataques e expansão sobre uma cópia isolada do estado do mundo. A ideia foi considerada viável, mas **não foi implementada até esta versão**.
+
+## Revisão de consolidação (setembro de 2026)
+
+Nesta revisão foram aplicadas correções estruturais adicionais levantadas nos testes: o Diagnóstico IA passa a ser reconhecido pelo roteador da Administração; mudanças automáticas do mundo deixam de disparar reconstrução completa das views (ticks salvam o estado e atualizam apenas elementos vivos); a abertura de relatórios ganhou delegação de eventos estável; filas de treinamento passam a operar independentemente por Quartel, Estábulo, Oficina, Academia e Estátua, mantendo FIFO dentro de cada edifício e liberação unidade a unidade; múltiplos Nobres no mesmo comando aplicam somente uma redução de lealdade; foi incluído bônus periódico configurável de recursos (padrão 1.000 de cada a cada 20 minutos, respeitando o Armazém); e os presets militares foram atualizados para Ataque 6.000 Bárbaros/200 Batedores/3.000 CL/200 Aríetes, Defesa 5.000 Lanceiros/5.000 Espadachins/5.000 Arqueiros/250 Batedores/500 CP/250 Catapultas e Ataque + 4 Nobres.
+
+Continuam como evolução planejada da mesma frente: tela completa de Conquistas com recompensas pendentes quando não houver espaço; editor modal unificado de presets personalizados; regras completas do Herói/Paladino (um por proprietário, Estátua somente na primeira aldeia, sem armas/XP); metas de IA por composição militar e revisão profunda de autonomia de todas as IAs; e reorganização final de parâmetros entre Ajustes e Administração.
