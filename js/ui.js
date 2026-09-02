@@ -1287,7 +1287,12 @@
   $("#loginForm").onsubmit = (e) => {
     e.preventDefault(); const f=new FormData(e.currentTarget);
     if (!window.RDGAuth.login(f.get("username"),f.get("password"))) { $("#loginError").textContent="Usuário ou senha inválidos."; $("#loginError").classList.remove("d-none"); return; }
-    $("#loginError").classList.add("d-none"); G.ensureCurrentPlayer(); applySessionUI(); view="village"; render(true);
+    $("#loginError").classList.add("d-none");
+    // Mostra a sessão antes de inicializar o mundo. Assim um erro de migração/renderização
+    // nunca faz um login válido parecer rejeitado.
+    applySessionUI();
+    try { G.ensureCurrentPlayer(); view="village"; render(true); }
+    catch(err) { console.error("Falha ao iniciar o mundo após login:",err); showInfo("Erro ao carregar o mundo",`O login foi aceito, mas ocorreu um erro ao carregar o mundo.<div class="small text-secondary mt-2">${String(err?.message||err)}</div>`); }
   };
   $("#showRegisterBtn").onclick=()=>{$("#loginForm").classList.add("d-none");$("#registerForm").classList.remove("d-none");};
   $("#backLoginBtn").onclick=()=>{$("#registerForm").classList.add("d-none");$("#loginForm").classList.remove("d-none");};

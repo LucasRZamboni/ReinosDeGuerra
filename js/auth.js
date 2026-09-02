@@ -12,13 +12,18 @@
     if(admin&&norm(username)===norm(admin.username)&&password===String(admin.password)){
       const s={username:admin.username,role:"admin",playerId:"admin",loginAt:Date.now()}; sessionStorage.setItem(SESSION_KEY,JSON.stringify(s)); return s;
     }
-    const a=accounts(), key=norm(username), u=a[key];
+    const a=accounts(), key=norm(username);
+    // Compatibilidade: versões antigas podem ter salvo a conta com uma chave diferente
+    // da normalização atual. Procura também pelo username armazenado e migra a chave.
+    let u=a[key] || Object.values(a).find(acc=>norm(acc?.username)===key);
+    if(u && !a[key]) { a[key]=u; saveAccounts(a); }
     // compatibilidade com o jogador de teste configurado
     const legacy=cfg().player;
     if(!u&&legacy&&key===norm(legacy.username)&&password===String(legacy.password)){
-      a[key]={username, password, createdAt:Date.now(), playerId:playerId(username)}; saveAccounts(a);
+      a[key]={username:legacy.username, password:String(legacy.password), createdAt:Date.now(), playerId:playerId(legacy.username)}; saveAccounts(a);
+      u=a[key];
     }
-    const found=accounts()[key];
+    const found=a[key] || u;
     if(found&&password===String(found.password)){
       const s={username:found.username,role:"player",playerId:found.playerId||playerId(found.username),loginAt:Date.now()}; sessionStorage.setItem(SESSION_KEY,JSON.stringify(s)); return s;
     }
