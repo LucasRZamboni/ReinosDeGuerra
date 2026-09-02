@@ -296,3 +296,29 @@ Foi discutida a criação de um simulador administrativo de 1h, 6h, 12h, 1 dia, 
 Nesta revisão foram aplicadas correções estruturais adicionais levantadas nos testes: o Diagnóstico IA passa a ser reconhecido pelo roteador da Administração; mudanças automáticas do mundo deixam de disparar reconstrução completa das views (ticks salvam o estado e atualizam apenas elementos vivos); a abertura de relatórios ganhou delegação de eventos estável; filas de treinamento passam a operar independentemente por Quartel, Estábulo, Oficina, Academia e Estátua, mantendo FIFO dentro de cada edifício e liberação unidade a unidade; múltiplos Nobres no mesmo comando aplicam somente uma redução de lealdade; foi incluído bônus periódico configurável de recursos (padrão 1.000 de cada a cada 20 minutos, respeitando o Armazém); e os presets militares foram atualizados para Ataque 6.000 Bárbaros/200 Batedores/3.000 CL/200 Aríetes, Defesa 5.000 Lanceiros/5.000 Espadachins/5.000 Arqueiros/250 Batedores/500 CP/250 Catapultas e Ataque + 4 Nobres.
 
 Continuam como evolução planejada da mesma frente: tela completa de Conquistas com recompensas pendentes quando não houver espaço; editor modal unificado de presets personalizados; regras completas do Herói/Paladino (um por proprietário, Estátua somente na primeira aldeia, sem armas/XP); metas de IA por composição militar e revisão profunda de autonomia de todas as IAs; e reorganização final de parâmetros entre Ajustes e Administração.
+
+
+## Consolidação 2026-09-02
+- Regras críticas centralizadas no `config.js`: combate, treinamento, Herói, perfis de IA, presets, bônus periódico e conquistas.
+- Filas militares independentes por Quartel/Estábulo/Oficina/Academia/Estátua, com liberação unidade a unidade. `Finalizar próximo treinamento` conclui somente a próxima unidade; `Finalizar todas` continua sendo a exceção administrativa.
+- IA usa composição-alvo por perfil e recruta por fila real, sem ganhar tropas instantaneamente; limites de Batedores e metas de Nobres ficam parametrizados.
+- Bônus periódico padrão: 1.000 de cada recurso a cada 20 minutos, configurável por categoria de aldeia e respeitando Armazém.
+- Recompensas de evolução que não cabem ficam pendentes em vez de ultrapassar Fazenda/Armazém.
+- Presets: Ataque 6000 Bárbaros/200 Batedores/3000 CL/200 Aríetes; Defesa 5000 Lanceiros/5000 Espadachins/5000 Arqueiros/250 Batedores/500 CP/250 Catapultas; Ataque+Nobre acrescenta 4 Nobres.
+- Preset personalizado editável em modal e reutilizável nas ferramentas administrativas/coletivas.
+- Regra de conquista: vários Nobres no mesmo comando causam apenas um golpe de lealdade.
+- Herói/Paladino: um por proprietário, criado pela Estátua; Estátua restrita à primeira aldeia; bárbaras/bônus não usam Herói por padrão.
+- Diagnóstico IA permanece como aba própria da Administração e não deve cair no fallback Mundo.
+- Interface automática continua event-driven: `game-tick` atualiza somente dados vivos, sem renderização completa de tabelas/formulários.
+
+## Conquistas unificadas
+
+Os antigos `villageMilestones` foram incorporados a `GAME_CONFIG.achievements`. O mesmo motor agora controla conquistas do reino e marcos por aldeia (`repeat: "perVillage"`), incluindo progresso, estado bloqueado/disponível/em espera/resgatado e validação de capacidade do Armazém/Fazenda. Saves antigos com `claimedMilestones`/`pendingMilestones` são migrados ao carregar.
+
+## Consolidação IA e objetivos (02/09/2026)
+- `ai.actionIntervalSeconds` é agora a fonte única do intervalo estratégico das IAs.
+- O campo "Intervalo de ação da IA (segundos)" foi incluído em Administração > Mundo > Comportamento dos inimigos.
+- Saves antigos que possuam `enemyRules.actionIntervalSeconds` são migrados/aceitos como fallback, mas novos salvamentos usam `settings.ai.actionIntervalSeconds`.
+- `enemyRules.actionIntervalSeconds` foi removido do `config.js` para evitar duas configurações concorrentes.
+- Objetivos `enemy1` e `enemyAll` são processados pelo motor: um inimigo é derrotado somente quando perde sua última aldeia; bárbaras e aldeias bônus não contam como inimigos.
+- Os textos dos objetivos de domínio permanecem corrigidos para 25% e 50%.

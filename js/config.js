@@ -16,14 +16,14 @@ window.GAME_CONFIG = {
   },
   defaultSpeed: 4,
   speedOptions: [1, 2, 4, 8],
-  productionPerMinute: { wood: 1, clay: 1, iron: 1 },
+  productionPerMinute: { wood: 30, clay: 30, iron: 30 },
   buildCostMultiplier: 1,
   buildTimeMultiplier: 1,
-  travelSecondsPerTile: 9,
-  mapWidth: 100,
-  mapHeight: 100,
-  villageDensity: 0.09,
-  startingResources: { wood: 500, clay: 500, iron: 400 },
+  travelSecondsPerTile: 12,
+  mapWidth: 80,
+  mapHeight: 80,
+  villageDensity: 0.08,
+  startingResources: { wood: 800, clay: 800, iron: 800 },
   startingVillage: { name: "Aldeia de jogador", x: 0, y: 0 },
   mapOriginCentered: true,
   // Pontuação-base de toda aldeia inicial. Fazenda, Armazém e Praça de Reuniões
@@ -31,23 +31,20 @@ window.GAME_CONFIG = {
   startingVillagePoints: 28,
   // Todos os edifícios aparecem aqui para facilitar a personalização da pontuação inicial.
   // O valor indica quantos níveis iniciais são gratuitos para a pontuação.
-  minimumAttackPopulation: 10,
-  freeVillageRules: { barbariansBuild: true, barbariansRecruit: false, bonusBuild: true, bonusRecruit: false },
-  villageMilestones: {
-    enabled: true,
-    pointRewards: [
-      { points: 100, storagePercent: 10 }, { points: 500, storagePercent: 20 },
-      { points: 1500, storagePercent: 30 }, { points: 3000, storagePercent: 40 }
-    ],
-    progressTroopRewards: [
-      { percent: 25, units: { spear: 50, sword: 25 } },
-      { percent: 50, units: { axe: 100, scout: 20 } },
-      { percent: 75, units: { light: 50, ram: 10 } },
-      { percent: 100, units: { noble: 1 } }
-    ]
+  minimumAttackPopulation: 6,
+  // Regras centralizadas: a interface e o motor devem ler estes valores, evitando hardcodes divergentes.
+  combatRules: { minimumAttackPopulation: 6, nobleLoyaltyHitsPerCommand: 1 },
+  trainingRules: { independentFacilities: true, releaseUnitByUnit: true, facilities: ["barracks", "stable", "workshop", "academy", "statue"] },
+  heroRules: { enabled: true, maxPerOwner: 1, statueOnlyFirstVillage: true, allowBarbarians: false, allowBonusVillages: false },
+  aiProfiles: {
+    offensive: { label: "Ofensiva", preset: "attackNoblesTroops", attackRate: .32, nobleTarget: 4, maxScouts: 200, buildPriority: ["barracks", "stable", "smithy", "farm", "storage", "keep", "market", "academy", "lumber", "claypit", "mine"] },
+    defensive: { label: "Defensiva", preset: "defenseTroops", attackRate: .08, nobleTarget: 1, maxScouts: 250, buildPriority: ["wall", "farm", "storage", "barracks", "smithy", "keep", "lumber", "claypit", "mine", "market", "academy"] },
+    economic: { label: "Econômica", preset: "economicTroops", attackRate: .12, nobleTarget: 1, maxScouts: 100, buildPriority: ["lumber", "claypit", "mine", "farm", "storage", "keep", "market", "barracks", "smithy", "academy"] },
+    expansive: { label: "Expansiva", preset: "attackNoblesTroops", attackRate: .22, nobleTarget: 4, maxScouts: 200, buildPriority: ["keep", "barracks", "smithy", "market", "academy", "farm", "storage", "stable", "lumber", "claypit", "mine"] }
   },
+  freeVillageRules: { barbariansBuild: true, barbariansRecruit: false, bonusBuild: true, bonusRecruit: false },
   freeStartingPointLevels: {
-    keep: 0, barracks: 0, stable: 0, workshop: 0, academy: 0, smithy: 0,
+    keep: 1, barracks: 0, stable: 0, workshop: 0, academy: 0, smithy: 0,
     rally: 0, statue: 0, market: 0, lumber: 0, claypit: 0, mine: 0,
     farm: 1, storage: 1, hide: 0, wall: 0,
   },
@@ -61,7 +58,7 @@ window.GAME_CONFIG = {
   },
   worldName: "Mundo 1",
   mapFrameSizes: [50, 100, 150],
-  defaultMapFrameSize: 100,
+  defaultMapFrameSize: 50,
   unlimitedBuildQueue: false,
   enemiesEnabled: false,
   enemyCount: 0,
@@ -82,7 +79,6 @@ window.GAME_CONFIG = {
     canUseSiege: true,
     canScout: true,
     recruitmentBatch: 20,
-    actionIntervalSeconds: 12,
   },
   buildingPresets: {
     halfRatio: 0.5,
@@ -91,12 +87,36 @@ window.GAME_CONFIG = {
   periodicResourceBonus: { enabled: true, intervalMinutes: 20, amount: 1000, players: true, enemies: true, barbarians: true, bonusVillages: true },
   adminPresets: {
     defenseTroops: { spear: 5000, sword: 5000, archer: 5000, scout: 250, heavy: 500, catapult: 250 },
-    attackTroops: { axe: 7500, light: 3000,scout: 250, ram: 300 },
+    attackTroops: { axe: 6000, scout: 200, light: 3000, ram: 200 },
     attackNoblesTroops: { axe: 6000, scout: 200, light: 3000, ram: 200, noble: 4 },
-    customTroops: { spear: 1000, sword: 1000, axe: 1000, archer: 0, scout: 100, light: 500, mounted: 0, heavy: 0, ram: 100, catapult: 100, noble: 0 },
+    economicTroops: { spear: 1500, sword: 1500, axe: 1000, archer: 1000, scout: 100, light: 500, noble: 1 },
+    customTroops: { spear: 1000, sword: 1000, axe: 1000, archer: 0, scout: 100, light: 500, mounted: 0, heavy: 0, ram: 100, catapult: 100, noble: 0, paladin: 0 },
   },
+  achievements: [
+    // Marcos por aldeia: usam o mesmo motor de Conquistas e podem ser obtidos uma vez por aldeia.
+    { id: "villagePoints100", name: "Aldeia com 100 pontos", category: "village", type: "villagePoints", target: 100, repeat: "perVillage", reward: { storagePercent: 10, scope: "village" } },
+    { id: "villagePoints500", name: "Aldeia com 500 pontos", category: "village", type: "villagePoints", target: 500, repeat: "perVillage", reward: { storagePercent: 20, scope: "village" } },
+    { id: "villagePoints1500", name: "Aldeia com 1.500 pontos", category: "village", type: "villagePoints", target: 1500, repeat: "perVillage", reward: { storagePercent: 30, scope: "village" } },
+    { id: "villagePoints3000", name: "Aldeia com 3.000 pontos", category: "village", type: "villagePoints", target: 3000, repeat: "perVillage", reward: { storagePercent: 40, scope: "village" } },
+    { id: "villageProgress25", name: "Aldeia 25% evoluída", category: "development", type: "villageProgress", target: 25, repeat: "perVillage", reward: { troops: { spear: 50, sword: 25 }, scope: "village" } },
+    { id: "villageProgress50", name: "Aldeia 50% evoluída", category: "development", type: "villageProgress", target: 50, repeat: "perVillage", reward: { troops: { axe: 100, scout: 20 }, scope: "village" } },
+    { id: "villageProgress75", name: "Aldeia 75% evoluída", category: "development", type: "villageProgress", target: 75, repeat: "perVillage", reward: { troops: { light: 50, ram: 10 }, scope: "village" } },
+    { id: "villageProgress100", name: "Aldeia 100% evoluída", category: "development", type: "villageProgress", target: 100, repeat: "perVillage", reward: { troops: { noble: 1 }, scope: "village" } },
+
+    { id: "hero", name: "Criar o Herói", category: "military", type: "hero", target: 1, repeat: "once", reward: { storagePercent: 10, scope: "active" } },
+    { id: "firstNoble", name: "Criar o primeiro Nobre", category: "military", repeat: "once", type: "nobles", target: 1, reward: { noble: 1, scope: "active" } },
+    { id: "conq1", name: "Conquistar 1 aldeia", category: "conquest", repeat: "once", type: "conquests", target: 1, reward: { storagePercent: 50, scope: "all" } },
+    { id: "conq5", name: "Conquistar 5 aldeias", category: "conquest", repeat: "once", type: "conquests", target: 5, reward: { storagePercent: 50, scope: "all", nobleActive: 1 } },
+    { id: "conq10", name: "Conquistar 10 aldeias", category: "conquest", repeat: "once", type: "conquests", target: 10, reward: { noblePerAcademy: 2 } },
+    { id: "conq50", name: "Conquistar 50 aldeias", category: "conquest", repeat: "once", type: "conquests", target: 50, reward: { storagePercent: 100, scope: "all" } },
+    { id: "conq100", name: "Conquistar 100 aldeias", category: "conquest", repeat: "once", type: "conquests", target: 100, reward: { roleTroops: true } },
+    { id: "conq200", name: "Conquistar 200 aldeias", category: "conquest", repeat: "once", type: "conquests", target: 200, reward: { noblePerAcademy: 2 } },
+    { id: "conq500", name: "Conquistar 500 aldeias", category: "conquest", repeat: "once", type: "conquests", target: 500, reward: { noblePerAcademy: 4 } },
+    { id: "pts500k", name: "Alcançar 500.000 pontos", category: "points", repeat: "once", type: "points", target: 500000, reward: { storagePercent: 100, scope: "all" } },
+    { id: "pts1m", name: "Alcançar 1.000.000 de pontos", category: "points", repeat: "once", type: "points", target: 1000000, reward: { nobleTopAcademies: 4, academyCount: 10 } },
+  ],
   baseLoyalty: 100,
-  bonusDefaults: { chance: 12, wood: 30, clay: 30, iron: 30, farm: 10, resources: 15, barracks: 10, stable: 10, storage: 50 },
+  bonusDefaults: { chance: 15, wood: 30, clay: 30, iron: 30, farm: 10, resources: 15, barracks: 10, stable: 10, storage: 50 },
   baseVillageDefense: 20,
   conquestLoyaltyDamage: [25, 35],
   productionByLevel: [
@@ -114,16 +134,31 @@ window.GAME_CONFIG = {
     12755, 14948, 17518, 20531, 24000,
   ],
   difficulties: {
-    easy: { name: "Crescimento lento", aiGrowth: 0.65 },
-    normal: { name: "Crescimento normal", aiGrowth: 1 },
-    hard: { name: "Crescimento rápido", aiGrowth: 1.45 },
+    easy: { name: "Crescimento lento", aiGrowth: 1 },
+    normal: { name: "Crescimento normal", aiGrowth: 1.5 },
+    hard: { name: "Crescimento rápido", aiGrowth: 2 },
   },
   objectives: {
     villages1: { name: "Conquistar 1 aldeia", type: "conquests", target: 1 },
     villages5: { name: "Conquistar 5 aldeias", type: "conquests", target: 5 },
     villages10: { name: "Conquistar 10 aldeias", type: "conquests", target: 10 },
-    map60: { name: "Dominar 60% das aldeias", type: "percentage", target: 60 },
-    map100: { name: "Conquistar todo o mundo", type: "percentage", target: 100 },
+    villages50: { name: "Conquistar 50 aldeias", type: "conquests", target: 50 },
+
+    enemy1: {
+      name: "Conquistar 1 inimigo",
+      type: "enemiesDefeated",
+      target: 1
+    },
+
+    enemyAll: {
+      name: "Conquistar todos os inimigos",
+      type: "allEnemiesDefeated",
+      target: 100
+    },
+
+    map25: { name: "Dominar 25% das aldeias", type: "percentage", target: 25 },
+    map50: { name: "Dominar 50% das aldeias", type: "percentage", target: 50 },
+    map100: { name: "Conquistar todo o mundo", type: "percentage", target: 100 }
   },
   ai: { actionIntervalSeconds: 25 },
   bonusTypes: {
@@ -521,7 +556,7 @@ window.GAME_CONFIG = {
 
 // Regras do Mundo: qualquer parâmetro de balanceamento pode ser sobrescrito pelo
 // Administrador. O saveKey fica de fora de propósito para não "sumir" com saves.
-(function applySavedWorldRules(){
+(function applySavedWorldRules() {
   const deepMerge = (target, source) => {
     if (!source || typeof source !== "object") return target;
     Object.entries(source).forEach(([key, value]) => {
