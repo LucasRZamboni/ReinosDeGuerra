@@ -322,3 +322,9 @@ Os antigos `villageMilestones` foram incorporados a `GAME_CONFIG.achievements`. 
 - `enemyRules.actionIntervalSeconds` foi removido do `config.js` para evitar duas configurações concorrentes.
 - Objetivos `enemy1` e `enemyAll` são processados pelo motor: um inimigo é derrotado somente quando perde sua última aldeia; bárbaras e aldeias bônus não contam como inimigos.
 - Os textos dos objetivos de domínio permanecem corrigidos para 25% e 50%.
+
+
+## Ajuste de início do mundo (02/09/2026)
+- Aldeias iniciais voltam a começar com **28 pontos**: Principal 1 (10) + Bosque 1 (6) + Barreiro 1 (6) + Mina 1 (6).
+- Corrigida a configuração legada de níveis gratuitos que descontava o Principal e fazia aparecer 18 pontos.
+- Mundos iniciam sempre com inimigos ativos e **mínimo de 5 IAs**. `enemyCount` passa a representar identidades de IA, não o total de aldeias conquistadas por elas.

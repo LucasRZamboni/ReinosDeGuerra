@@ -40,8 +40,9 @@
       ai: clone(C.ai || { actionIntervalSeconds: 25 }),
       periodicResourceBonus: clone(C.periodicResourceBonus || {enabled:true,intervalMinutes:20,amount:1000,players:true,enemies:true,barbarians:true,bonusVillages:true}),
       unlimitedBuildQueue: C.unlimitedBuildQueue ?? false,
-      enemiesEnabled: C.enemiesEnabled ?? false,
-      enemyCount: C.enemyCount ?? 0,
+      enemiesEnabled: C.enemiesEnabled ?? true,
+      minimumInitialEnemies: Math.max(5, Number(C.minimumInitialEnemies) || 5),
+      enemyCount: Math.max(5, Number(C.enemyCount) || 5),
       barbarianSpawn: clone(C.barbarianSpawn || {enabled:true,intervalMinutes:30,maxNewVillages:20,perCycle:1,bonusChance:15,maximized:false}),
       enemyRules: clone(C.enemyRules || {}),
       buildingPresets: clone(C.buildingPresets || {halfRatio:.5,custom:null}),
@@ -176,6 +177,17 @@
   function migrate(data) {
     const old = data.version || 1;
     data.settings = mergedSettings(data.settings || {});
+    // Migração da configuração antiga que descontava 10 pontos do Principal inicial
+    // (e fazia a aldeia aparecer com 18 em vez dos 28 pontos clássicos).
+    const freePts = data.settings.freeStartingPointLevels || {};
+    if (Number(data.settings.startingVillagePoints) === 28 && Number(freePts.keep) === 1 && Number(freePts.lumber||0) === 0 && Number(freePts.claypit||0) === 0 && Number(freePts.mine||0) === 0) {
+      Object.keys(C.buildings).forEach(k => freePts[k] = 0);
+      data.settings.freeStartingPointLevels = freePts;
+    }
+    // Todo mundo começa com o sistema de inimigos ativo e nunca com menos de 5 IAs.
+    data.settings.enemiesEnabled = true;
+    data.settings.minimumInitialEnemies = Math.max(5, Number(data.settings.minimumInitialEnemies) || 5);
+    data.settings.enemyCount = Math.max(data.settings.minimumInitialEnemies, Number(data.settings.enemyCount) || 0);
     data.villages = data.villages || {};
     if (old < 6) {
       data.terrain = makeTerrain();
@@ -1112,15 +1124,30 @@
     }
   }, C.tickMs);
   function syncEnemies() {
-    const desired = state.settings.enemiesEnabled ? Math.max(0, Math.floor(Number(state.settings.enemyCount) || 0)) : 0;
-    let enemies = Object.values(state.villages).filter(v => v.owner === "enemy");
-    while (enemies.length > desired) { enemies.pop().owner = null; }
+    const minimum = Math.max(5, Number(state.settings.minimumInitialEnemies ?? C.minimumInitialEnemies) || 5);
+    const desired = Math.max(minimum, Math.floor(Number(state.settings.enemyCount) || minimum));
+    state.settings.enemiesEnabled = true;
+    state.settings.enemyCount = desired;
+
+    // enemyCount representa IAs (identidades), não o total de aldeias que elas conquistaram.
+    const enemyVillages = Object.values(state.villages).filter(v => v.owner === "enemy");
+    const groups = new Map();
+    enemyVillages.forEach(v => {
+      if (!v.aiId) v.aiId = `ai-${v.id}`;
+      if (!groups.has(v.aiId)) groups.set(v.aiId, []);
+      groups.get(v.aiId).push(v);
+    });
     const free = Object.values(state.villages).filter(v => !v.owner && (!v.bonusType || v.bonusType === "none"));
-    while (enemies.length < desired && free.length) {
+    while (groups.size < desired && free.length) {
       const v = free.splice(rand(0, free.length - 1), 1)[0];
-      v.owner = "enemy"; v.name = `Inimigo ${enemies.length + 1}`; v.aiProfile = ["offensive","defensive","economic","expansive"][enemies.length%4]; v.aiId = `ai-${v.id}`;
-      enemies.push(v);
+      const idx = groups.size;
+      v.owner = "enemy";
+      v.name = `Inimigo ${idx + 1}`;
+      v.aiProfile = ["offensive","defensive","economic","expansive"][idx % 4];
+      v.aiId = `ai-${v.id}`;
+      groups.set(v.aiId, [v]);
     }
+    S.save(state);
   }
   function adminCreateVillage(data) {
     const x = Math.max(mapMinX(), Math.min(mapMaxX(), Math.floor(Number(data.x))));

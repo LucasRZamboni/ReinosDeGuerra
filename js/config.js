@@ -44,9 +44,10 @@ window.GAME_CONFIG = {
   },
   freeVillageRules: { barbariansBuild: true, barbariansRecruit: false, bonusBuild: true, bonusRecruit: false },
   freeStartingPointLevels: {
-    keep: 1, barracks: 0, stable: 0, workshop: 0, academy: 0, smithy: 0,
+    // Nenhum nível inicial é gratuito para pontuação: Principal 1 (10) + Madeira 1 (6) + Argila 1 (6) + Ferro 1 (6) = 28.
+    keep: 0, barracks: 0, stable: 0, workshop: 0, academy: 0, smithy: 0,
     rally: 0, statue: 0, market: 0, lumber: 0, claypit: 0, mine: 0,
-    farm: 1, storage: 1, hide: 0, wall: 0,
+    farm: 0, storage: 0, hide: 0, wall: 0,
   },
   // Configuração clássica de 28 pontos: Principal 1 (10) + Bosque 1 (6)
   // + Barreiro 1 (6) + Mina de Ferro 1 (6). Os pontos são sempre calculados
@@ -60,8 +61,9 @@ window.GAME_CONFIG = {
   mapFrameSizes: [50, 100, 150],
   defaultMapFrameSize: 50,
   unlimitedBuildQueue: false,
-  enemiesEnabled: false,
-  enemyCount: 0,
+  enemiesEnabled: true,
+  minimumInitialEnemies: 5,
+  enemyCount: 5,
   barbarianSpawn: { enabled: true, intervalMinutes: 30, maxNewVillages: 20, perCycle: 1, bonusChance: 15, maximized: false },
   enemyRules: {
     canAttackPlayers: true,
