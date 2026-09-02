@@ -313,7 +313,7 @@ Continuam como evolução planejada da mesma frente: tela completa de Conquistas
 
 ## Conquistas unificadas
 
-Os antigos `villageMilestones` foram incorporados a `GAME_CONFIG.achievements`. O mesmo motor agora controla conquistas do reino e marcos por aldeia (`repeat: "perVillage"`), incluindo progresso, estado bloqueado/disponível/em espera/resgatado e validação de capacidade do Armazém/Fazenda. Saves antigos com `claimedMilestones`/`pendingMilestones` são migrados ao carregar.
+Os antigos `villageMilestones` foram incorporados a `GAME_CONFIG.achievements`. O mesmo motor controla conquistas do reino e marcos iniciais da primeira aldeia (`repeat: "firstVillage"`). Esses marcos não se repetem nas aldeias conquistadas; depois deles, a progressão é global do jogador/reino. Saves antigos com `claimedMilestones`/`pendingMilestones` são migrados ao carregar.
 
 ## Consolidação IA e objetivos (02/09/2026)
 - `ai.actionIntervalSeconds` é agora a fonte única do intervalo estratégico das IAs.
@@ -347,3 +347,14 @@ Os antigos `villageMilestones` foram incorporados a `GAME_CONFIG.achievements`. 
 - Programação recorrente de ataques: intervalo, duração total (0 = sem limite), múltiplas origens, alvos por relatório ou coordenada manual, histórico de falhas e verificação das tropas realmente disponíveis em cada disparo.
 - Admin vê todos os alvos na programação recorrente; jogadores veem automaticamente alvos presentes em seus relatórios e ainda podem digitar coordenadas manualmente.
 - Mapa restaurado para 100x100 e população militar mínima de ataque para 10.
+
+## Correções pós-atualização
+- Lista da aldeia: Evoluir não abre mais o edifício junto.
+- Edifício Principal usa a listagem responsiva.
+- Pontuação inicial corrigida para 28 (Fazenda/Armazém iniciais gratuitos na pontuação).
+- Inimigos ativos desde o início, mínimo de 10 IAs.
+- Recompensas ficam explícitas na aba Conquistas.
+- Rótulos da aldeia ilustrada e opção de ocultar nomes corrigidos.
+- Ferramenta de simulação do Admin foi separada dos dados cadastrais.
+- Ataques recorrentes ganharam destaque na tela Comandos.
+- Botões de relatório agora navegam para o Simulador com os dados carregados.

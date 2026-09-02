@@ -41,8 +41,8 @@
       periodicResourceBonus: clone(C.periodicResourceBonus || {enabled:true,intervalMinutes:20,amount:1000,players:true,enemies:true,barbarians:true,bonusVillages:true}),
       unlimitedBuildQueue: C.unlimitedBuildQueue ?? false,
       enemiesEnabled: C.enemiesEnabled ?? true,
-      minimumInitialEnemies: Math.max(5, Number(C.minimumInitialEnemies) || 5),
-      enemyCount: Math.max(5, Number(C.enemyCount) || 5),
+      minimumInitialEnemies: Math.max(10, Number(C.minimumInitialEnemies) || 10),
+      enemyCount: Math.max(10, Number(C.enemyCount) || 10),
       barbarianSpawn: clone(C.barbarianSpawn || {enabled:true,intervalMinutes:30,maxNewVillages:20,perCycle:1,bonusChance:15,maximized:false}),
       enemyRules: clone(C.enemyRules || {}),
       buildingPresets: clone(C.buildingPresets || {halfRatio:.5,custom:null}),
@@ -188,11 +188,12 @@
     const freePts = data.settings.freeStartingPointLevels || {};
     if (Number(data.settings.startingVillagePoints) === 28 && Number(freePts.keep) === 1 && Number(freePts.lumber||0) === 0 && Number(freePts.claypit||0) === 0 && Number(freePts.mine||0) === 0) {
       Object.keys(C.buildings).forEach(k => freePts[k] = 0);
+      freePts.farm = 1; freePts.storage = 1; freePts.rally = 1;
       data.settings.freeStartingPointLevels = freePts;
     }
-    // Todo mundo começa com o sistema de inimigos ativo e nunca com menos de 5 IAs.
+    // Todo mundo começa com o sistema de inimigos ativo e nunca com menos de 10 IAs.
     data.settings.enemiesEnabled = true;
-    data.settings.minimumInitialEnemies = Math.max(5, Number(data.settings.minimumInitialEnemies) || 5);
+    data.settings.minimumInitialEnemies = Math.max(10, Number(data.settings.minimumInitialEnemies) || 10);
     data.settings.enemyCount = Math.max(data.settings.minimumInitialEnemies, Number(data.settings.enemyCount) || 0);
     data.villages = data.villages || {};
     if (old < 6) {
@@ -233,6 +234,17 @@
       Object.entries(v.claimedMilestones||{}).forEach(([k,when])=>{const m=k.match(/^points-\d+-(\d+)$/)||k.match(/^progress-\d+-(\d+)$/);if(!m)return;const aid=k.startsWith("points")?legacyPointIds[Number(m[1])]:legacyProgressIds[Number(m[1])];if(!aid)return;const root=ast[aid]||(ast[aid]={villages:{}});root.villages=root.villages||{};root.villages[v.id]={unlocked:true,claimed:true,pending:false,claimedAt:when||Date.now()};});
       Object.entries(v.pendingMilestones||{}).forEach(([k,val])=>{const m=k.match(/^points-\d+-(\d+)$/)||k.match(/^progress-\d+-(\d+)$/);if(!m)return;const aid=k.startsWith("points")?legacyPointIds[Number(m[1])]:legacyProgressIds[Number(m[1])];if(!aid)return;const root=ast[aid]||(ast[aid]={villages:{}});root.villages=root.villages||{};root.villages[v.id]={unlocked:true,claimed:false,pending:true,unlockedAt:val?.unlockedAt||Date.now()};});
       delete v.claimedMilestones; delete v.pendingMilestones;
+    });
+    // Conquistas iniciais deixaram de repetir por aldeia: colapsa saves antigos em um único estado por jogador.
+    const firstVillageAchievementIds=["villagePoints100","villagePoints500","villagePoints1500","villagePoints3000","villageProgress25","villageProgress50","villageProgress75","villageProgress100"];
+    Object.entries(data.achievements||{}).forEach(([ownerKey,ast])=>{
+      firstVillageAchievementIds.forEach(aid=>{
+        const oldRoot=ast?.[aid]; if(!oldRoot?.villages)return;
+        const entries=Object.values(oldRoot.villages);
+        const claimed=entries.filter(e=>e?.claimed).sort((a,b)=>(a.claimedAt||0)-(b.claimedAt||0))[0];
+        const unlocked=entries.filter(e=>e?.unlocked).sort((a,b)=>(a.unlockedAt||0)-(b.unlockedAt||0))[0];
+        ast[aid]=claimed?{unlocked:true,claimed:true,pending:false,claimedAt:claimed.claimedAt||Date.now()}:unlocked?{unlocked:true,claimed:false,pending:!!unlocked.pending,unlockedAt:unlocked.unlockedAt||Date.now()}:{};
+      });
     });
     // v9: coordenadas centradas em 0|0. Saves antigos 0..99 são deslocados sem perder movimentos.
     if (C.mapOriginCentered && Number(data.version||1) < 9 && Object.values(data.villages).some(v => v.x > mapMaxX() || v.y > mapMaxY())) {
@@ -294,6 +306,8 @@
     return data;
   }
   let state = migrate(S.load() || newState());
+  // Um mundo novo ou migrado sempre nasce com o elenco mínimo de IAs já ativo.
+  setTimeout(() => { try { syncEnemies(); S.save(state); } catch (e) { console.error("Falha ao inicializar inimigos", e); } }, 0);
   const active = () => state.villages[state.activeVillageId],
     owned = () => Object.values(state.villages).filter(isMine),
     villageAt = (x, y) => state.villages[id(Number(x), Number(y))];
@@ -945,8 +959,26 @@
     state.lastAiAction = now;
   }
   function villageProgressPercent(v){ const max=Math.max(1,maxVillagePoints()); return Math.max(0,Math.min(100,(points(v)/max)*100)); }
+  function firstVillageFor(key=currentPlayerId()) {
+    const villages=Object.values(state.villages).filter(v=>combatKey(v)===key);
+    if(!villages.length) return null;
+    state.players=state.players||{};
+    const player=state.players[key]||(state.players[key]={id:key});
+    let v=player.firstVillageId ? state.villages[player.firstVillageId] : null;
+    if(!v || combatKey(v)!==key){
+      v=villages.slice().sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)||String(a.id).localeCompare(String(b.id)))[0];
+      player.firstVillageId=v.id;
+    }
+    return v;
+  }
   function achievementProgress(a, key=currentPlayerId(), villageId=null) {
     const villages=Object.values(state.villages).filter(v=>combatKey(v)===key);
+    if(a.repeat==="firstVillage"){
+      const v=firstVillageFor(key); if(!v) return 0;
+      if(a.type==="villagePoints") return points(v);
+      if(a.type==="villageProgress") return villageProgressPercent(v);
+      return 0;
+    }
     if(a.repeat==="perVillage"){
       const v=state.villages[villageId]; if(!v || combatKey(v)!==key) return 0;
       if(a.type==="villagePoints") return points(v);
@@ -975,7 +1007,8 @@
     if(!key) return;
     const villages=Object.values(state.villages).filter(v=>combatKey(v)===key);
     (C.achievements||[]).forEach(a=>{
-      if(a.repeat==="perVillage") villages.forEach(v=>{const e=achievementEntry(a,key,v.id);if(!e.claimed&&achievementProgress(a,key,v.id)>=a.target&&!e.unlocked){e.unlocked=true;e.unlockedAt=Date.now();if(key===currentPlayerId())window.dispatchEvent(new CustomEvent("achievement-unlocked",{detail:{name:a.name,village:v.name}}));}});
+      if(a.repeat==="firstVillage"){ const v=firstVillageFor(key),e=achievementEntry(a,key); if(v&&!e.claimed&&achievementProgress(a,key)>=a.target&&!e.unlocked){e.unlocked=true;e.unlockedAt=Date.now();if(key===currentPlayerId())window.dispatchEvent(new CustomEvent("achievement-unlocked",{detail:{name:a.name,village:v.name}}));}}
+      else if(a.repeat==="perVillage") villages.forEach(v=>{const e=achievementEntry(a,key,v.id);if(!e.claimed&&achievementProgress(a,key,v.id)>=a.target&&!e.unlocked){e.unlocked=true;e.unlockedAt=Date.now();if(key===currentPlayerId())window.dispatchEvent(new CustomEvent("achievement-unlocked",{detail:{name:a.name,village:v.name}}));}});
       else {const e=achievementEntry(a,key);if(!e.claimed&&achievementProgress(a,key)>=a.target&&!e.unlocked){e.unlocked=true;e.unlockedAt=Date.now();if(key===currentPlayerId())window.dispatchEvent(new CustomEvent("achievement-unlocked",{detail:{name:a.name}}));}}
     });
   }
@@ -990,6 +1023,7 @@
     const entry=achievementEntry(a,key,villageId); if(!entry.unlocked||entry.claimed)return false;
     let villages=Object.values(state.villages).filter(v=>combatKey(v)===key), r=a.reward||{}, targets;
     if(a.repeat==="perVillage") { const v=state.villages[villageId]; targets=v&&combatKey(v)===key?[v]:[]; }
+    else if(a.repeat==="firstVillage") { const v=firstVillageFor(key); targets=v?[v]:[]; }
     else targets=r.scope==="active"?[active()].filter(v=>v&&combatKey(v)===key):villages;
     if(r.noblePerAcademy){targets=villages.filter(v=>(v.buildings.academy||0)>0); r={...r,noble:r.noblePerAcademy};}
     if(r.nobleTopAcademies){targets=villages.filter(v=>(v.buildings.academy||0)>0).sort((a,b)=>points(b)-points(a)).slice(0,r.academyCount||10); r={...r,noble:r.nobleTopAcademies};}
@@ -1165,7 +1199,7 @@
     }
   }, C.tickMs);
   function syncEnemies() {
-    const minimum = Math.max(5, Number(state.settings.minimumInitialEnemies ?? C.minimumInitialEnemies) || 5);
+    const minimum = Math.max(10, Number(state.settings.minimumInitialEnemies ?? C.minimumInitialEnemies) || 10);
     const desired = Math.max(minimum, Math.floor(Number(state.settings.enemyCount) || minimum));
     state.settings.enemiesEnabled = true;
     state.settings.enemyCount = desired;
@@ -1302,7 +1336,7 @@
     const previousPlayer = state.players[pid] || null;
     state.players[pid] = { ...(previousPlayer||{}), id:pid, username:sess.username, role:sess.role, lastSeen:Date.now() };
     let mine=Object.values(state.villages).filter(v=>v.owner==="player"&&v.ownerId===pid);
-    if (mine.length) state.players[pid].hasStarted = true;
+    if (mine.length) { state.players[pid].hasStarted = true; if(!state.players[pid].firstVillageId) state.players[pid].firstVillageId=mine.slice().sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)||String(a.id).localeCompare(String(b.id)))[0].id; }
     // Jogador comum recebe aldeia somente na primeira entrada. Se perdeu todas, permanece derrotado
     // até escolher explicitamente reiniciar. O Admin nunca recebe aldeia automaticamente.
     if(!mine.length && sess.role==="player" && !state.players[pid].hasStarted) {
@@ -1311,7 +1345,7 @@
       if(!spots.length) return notify("Não há espaço livre para uma nova aldeia.","danger");
       const [x,y]=spots[rand(0,spots.length-1)]; const v=makeVillage(x,y,"player",state.settings);
       v.ownerId=pid; v.name=`Aldeia de ${sess.username}`; v.buildings={...Object.fromEntries(Object.keys(C.buildings).map(k=>[k,0])),...clone(state.settings.initialBuildingLevels)};
-      state.villages[v.id]=v; mine=[v]; state.players[pid].hasStarted=true;
+      state.villages[v.id]=v; mine=[v]; state.players[pid].hasStarted=true; state.players[pid].firstVillageId=v.id;
       state.reports.unshift({id:`info-${Date.now()}`,time:Date.now(),type:"info",playerId:pid,title:"Bem-vindo ao mundo",text:`Sua aldeia inicial foi fundada em ${x}|${y}.`});
     }
     const savedActive=state.players[pid].activeVillageId;

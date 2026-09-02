@@ -44,10 +44,10 @@ window.GAME_CONFIG = {
   },
   freeVillageRules: { barbariansBuild: true, barbariansRecruit: false, bonusBuild: true, bonusRecruit: false },
   freeStartingPointLevels: {
-    // Nenhum nível inicial é gratuito para pontuação: Principal 1 (10) + Madeira 1 (6) + Argila 1 (6) + Ferro 1 (6) = 28.
+    // Fazenda e Armazém iniciais são gratuitos para pontuação. Principal 1 (10) + Madeira 1 (6) + Argila 1 (6) + Ferro 1 (6) = 28.
     keep: 0, barracks: 0, stable: 0, workshop: 0, academy: 0, smithy: 0,
     rally: 0, statue: 0, market: 0, lumber: 0, claypit: 0, mine: 0,
-    farm: 0, storage: 0, hide: 0, wall: 0,
+    farm: 1, storage: 1, hide: 0, wall: 0,
   },
   // Configuração clássica de 28 pontos: Principal 1 (10) + Bosque 1 (6)
   // + Barreiro 1 (6) + Mina de Ferro 1 (6). Os pontos são sempre calculados
@@ -62,8 +62,8 @@ window.GAME_CONFIG = {
   defaultMapFrameSize: 50,
   unlimitedBuildQueue: false,
   enemiesEnabled: true,
-  minimumInitialEnemies: 5,
-  enemyCount: 5,
+  minimumInitialEnemies: 10,
+  enemyCount: 10,
   barbarianSpawn: { enabled: true, intervalMinutes: 30, maxNewVillages: 20, perCycle: 1, bonusChance: 15, maximized: false },
   enemyRules: {
     canAttackPlayers: true,
@@ -95,15 +95,15 @@ window.GAME_CONFIG = {
     customTroops: { spear: 1000, sword: 1000, axe: 1000, archer: 0, scout: 100, light: 500, mounted: 0, heavy: 0, ram: 100, catapult: 100, noble: 0, paladin: 0 },
   },
   achievements: [
-    // Marcos por aldeia: usam o mesmo motor de Conquistas e podem ser obtidos uma vez por aldeia.
-    { id: "villagePoints100", name: "Aldeia com 100 pontos", category: "village", type: "villagePoints", target: 100, repeat: "perVillage", reward: { storagePercent: 10, scope: "village" } },
-    { id: "villagePoints500", name: "Aldeia com 500 pontos", category: "village", type: "villagePoints", target: 500, repeat: "perVillage", reward: { storagePercent: 20, scope: "village" } },
-    { id: "villagePoints1500", name: "Aldeia com 1.500 pontos", category: "village", type: "villagePoints", target: 1500, repeat: "perVillage", reward: { storagePercent: 30, scope: "village" } },
-    { id: "villagePoints3000", name: "Aldeia com 3.000 pontos", category: "village", type: "villagePoints", target: 3000, repeat: "perVillage", reward: { storagePercent: 40, scope: "village" } },
-    { id: "villageProgress25", name: "Aldeia 25% evoluída", category: "development", type: "villageProgress", target: 25, repeat: "perVillage", reward: { troops: { spear: 50, sword: 25 }, scope: "village" } },
-    { id: "villageProgress50", name: "Aldeia 50% evoluída", category: "development", type: "villageProgress", target: 50, repeat: "perVillage", reward: { troops: { axe: 100, scout: 20 }, scope: "village" } },
-    { id: "villageProgress75", name: "Aldeia 75% evoluída", category: "development", type: "villageProgress", target: 75, repeat: "perVillage", reward: { troops: { light: 50, ram: 10 }, scope: "village" } },
-    { id: "villageProgress100", name: "Aldeia 100% evoluída", category: "development", type: "villageProgress", target: 100, repeat: "perVillage", reward: { troops: { noble: 1 }, scope: "village" } },
+    // Marcos iniciais: pertencem ao jogador e usam somente a primeira aldeia fundada.
+    { id: "villagePoints100", name: "Aldeia com 100 pontos", category: "village", type: "villagePoints", target: 100, repeat: "firstVillage", reward: { storagePercent: 10, scope: "village" } },
+    { id: "villagePoints500", name: "Aldeia com 500 pontos", category: "village", type: "villagePoints", target: 500, repeat: "firstVillage", reward: { storagePercent: 20, scope: "village" } },
+    { id: "villagePoints1500", name: "Aldeia com 1.500 pontos", category: "village", type: "villagePoints", target: 1500, repeat: "firstVillage", reward: { storagePercent: 30, scope: "village" } },
+    { id: "villagePoints3000", name: "Aldeia com 3.000 pontos", category: "village", type: "villagePoints", target: 3000, repeat: "firstVillage", reward: { storagePercent: 40, scope: "village" } },
+    { id: "villageProgress25", name: "Aldeia 25% evoluída", category: "development", type: "villageProgress", target: 25, repeat: "firstVillage", reward: { troops: { spear: 50, sword: 25 }, scope: "village" } },
+    { id: "villageProgress50", name: "Aldeia 50% evoluída", category: "development", type: "villageProgress", target: 50, repeat: "firstVillage", reward: { troops: { axe: 100, scout: 20 }, scope: "village" } },
+    { id: "villageProgress75", name: "Aldeia 75% evoluída", category: "development", type: "villageProgress", target: 75, repeat: "firstVillage", reward: { troops: { light: 50, ram: 10 }, scope: "village" } },
+    { id: "villageProgress100", name: "Aldeia 100% evoluída", category: "development", type: "villageProgress", target: 100, repeat: "firstVillage", reward: { troops: { noble: 1 }, scope: "village" } },
 
     { id: "hero", name: "Criar o Herói", category: "military", type: "hero", target: 1, repeat: "once", reward: { storagePercent: 10, scope: "active" } },
     { id: "firstNoble", name: "Criar o primeiro Nobre", category: "military", repeat: "once", type: "nobles", target: 1, reward: { noble: 1, scope: "active" } },
