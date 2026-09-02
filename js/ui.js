@@ -284,6 +284,76 @@
     const fields=(prefix,data)=>Object.entries(C.units).map(([k,u])=>`<label class="sim-unit"><span>${u.icon} ${u.name}</span><input class="form-control form-control-sm" type="number" min="0" name="${prefix}-${k}" value="${data[k]||0}"></label>`).join("");
     $("#view-simulator").innerHTML=`<div class="section-title"><div><div class="eyebrow">Laboratório militar</div><h2>Simulador de Combate</h2></div></div><div class="alert alert-secondary py-2">Defensor: ${title}. Simulações nunca alteram o mundo.</div><form id="simulatorForm"><div class="row g-3"><div class="col-lg-6"><section class="panel p-3"><h3 class="h6">Atacante</h3><div class="d-flex gap-2 mb-2"><button type="button" class="btn btn-sm btn-outline-danger sim-preset" data-preset="attackTroops">Ataque</button><button type="button" class="btn btn-sm btn-outline-secondary sim-clear">Limpar</button></div><div class="sim-grid">${fields("a",{})}</div></section></div><div class="col-lg-6"><section class="panel p-3"><h3 class="h6">Defensor</h3><div class="d-flex gap-2 mb-2"><button type="button" class="btn btn-sm btn-outline-info sim-preset-defense">Defesa</button></div><div class="sim-grid">${fields("d",def)}</div><label class="form-label mt-2">Muralha<input name="wall" type="number" min="0" max="20" class="form-control" value="${seed?.wall||0}"></label></section></div></div><button class="btn btn-warning mt-3">Simular</button><div id="simResult" class="panel p-3 mt-3 d-none"></div></form>`;
   }
+  function unitsTable(data) {
+    return `<div class="table-responsive"><table class="table table-sm"><thead><tr><th>Unidade</th><th>Enviadas/presentes</th><th>Mortas</th><th>Restantes</th></tr></thead><tbody>${
+      Object.keys(C.units)
+        .filter((k) => data.before[k] || data.losses[k] || data.survivors[k])
+        .map(
+          (k) =>
+            `<tr><td>${C.units[k].icon} ${C.units[k].name}</td><td>${fmt(data.before[k])}</td><td class="unit-dead">${fmt(data.losses[k])}</td><td class="unit-alive">${fmt(data.survivors[k])}</td></tr>`,
+        )
+        .join("") || '<tr><td colspan="4">Nenhuma unidade.</td></tr>'
+    }</tbody></table></div>`;
+  }
+  function reportModal(r) {
+    $("#reportModalTitle").textContent = r.victory ? "Vitória" : "Derrota";
+    const intel = r.intel
+      ? `<section class="report-section"><h3 class="h5">Espionagem</h3><p class="${r.intel.success ? "text-success" : "text-warning"}">${r.intel.reason}</p>${
+          r.intel.success
+            ? `<h4 class="h6">Recursos observados</h4>${costs(r.intel.resources)}<h4 class="h6 mt-3">Edifícios</h4><div class="intel-grid">${Object.entries(
+                r.intel.buildings,
+              )
+                .filter(([, n]) => n)
+                .map(([k, n]) => `<span>${C.buildings[k].name} ${n}</span>`)
+                .join(
+                  "",
+                )}</div><h4 class="h6 mt-3">Tropas restantes</h4><div class="intel-grid">${
+                Object.entries(r.intel.units)
+                  .filter(([, n]) => n)
+                  .map(
+                    ([k, n]) =>
+                      `<span>${C.units[k].icon} ${C.units[k].name}: ${fmt(n)}</span>`,
+                  )
+                  .join("") || "Nenhuma"
+              }</div>`
+            : ""
+        }</section>`
+      : "";
+    const noble = r.loyaltyDamage
+      ? `<section class="report-section mt-3"><h3 class="h5">Nobre e lealdade</h3><div class="text-warning">A aldeia perdeu <strong>${r.loyaltyDamage}%</strong> de lealdade: <strong>${r.loyaltyBefore ?? "?"}% → ${r.loyaltyAfter ?? Math.max(0, (r.loyaltyBefore ?? 100) - r.loyaltyDamage)}%</strong>.</div>${r.conquered ? '<div class="text-success mt-1">Conquistada; a lealdade da nova posse foi restaurada para 100%.</div>' : ""}</section>`
+      : "";
+    const reportBonus =
+      r.defenderBonus?.type && r.defenderBonus.type !== "none"
+        ? `<section class="report-section mt-3"><h3 class="h5">Bônus da aldeia atacada</h3><div>${C.bonusTypes[r.defenderBonus.type]?.icon || ""} <strong>${C.bonusTypes[r.defenderBonus.type]?.name || r.defenderBonus.type}</strong>: +${r.defenderBonus.value}%</div></section>`
+        : `<section class="report-section mt-3"><h3 class="h5">Bônus da aldeia atacada</h3><div class="text-secondary">Sem bônus</div></section>`;
+    const siegeRows = [];
+    if (r.siege?.ram)
+      siegeRows.push(
+        `<div>▰ Aríetes: Muralha nível ${r.siege.ram.before} → ${r.siege.ram.after} <strong class="text-danger">(-${r.siege.ram.levelsDestroyed} níveis)</strong> · ${r.siege.ram.sent} enviados</div>`,
+      );
+    if (r.siege?.catapult) {
+      const x = r.siege.catapult;
+      siegeRows.push(
+        `<div>◒ Catapultas: ${C.buildings[x.building]?.name || x.building} nível ${x.before} → ${x.after} <strong class="text-danger">(-${x.levelsDestroyed} níveis)</strong> · ${x.sent} enviadas</div>`,
+      );
+    }
+    const siege = siegeRows.length
+      ? `<section class="report-section mt-3"><h3 class="h5">Destruição</h3>${siegeRows.join("")}</section>`
+      : "";
+    const reports = visibleReports();
+    const reportIndexes = reports.map((x, i) => x?.attacker ? i : -1).filter(i => i >= 0);
+    const currentIndex = reports.indexOf(r);
+    const navPos = reportIndexes.indexOf(currentIndex);
+    const prevIndex = navPos > 0 ? reportIndexes[navPos - 1] : null;
+    const nextIndex = navPos >= 0 && navPos < reportIndexes.length - 1 ? reportIndexes[navPos + 1] : null;
+    const nav = `<div class="d-flex justify-content-between align-items-center gap-2 mb-3 report-modal-nav"><button type="button" id="reportPrev" class="btn btn-sm btn-outline-light" ${prevIndex === null ? "disabled" : ""}>← Relatório anterior</button><span class="small text-secondary">${navPos >= 0 ? navPos + 1 : 1} de ${reportIndexes.length}</span><button type="button" id="reportNext" class="btn btn-sm btn-outline-light" ${nextIndex === null ? "disabled" : ""}>Próximo relatório →</button></div>`;
+    $("#reportModalBody").innerHTML =
+      `${nav}<div class="battle-route"><strong>${r.attacker.name}</strong> (${r.attacker.x}|${r.attacker.y}) <span>→</span> <strong>${r.defender.name}</strong> (${r.defender.x}|${r.defender.y})</div><div class="row g-3 mt-1"><div class="col-lg-6"><section class="report-section"><h3 class="h5">Tropas atacantes</h3>${unitsTable(r.attacking)}</section></div><div class="col-lg-6"><section class="report-section"><h3 class="h5">Tropas defensoras</h3>${unitsTable(r.defending)}</section></div></div><section class="report-section mt-3"><h3 class="h5">Recursos saqueados</h3>${costs(r.loot)}${r.conquered ? '<div class="text-success mt-2">A aldeia foi conquistada.</div>' : ""}</section>${noble}${reportBonus}${siege}${intel}<div class="d-flex gap-2 flex-wrap mt-3">${r.intel?.units?`<button class="btn btn-sm btn-warning report-sim-spy" data-report-id="${r.id}">Usar tropas espionadas no Simulador</button>`:""}${r.defending?.survivors?`<button class="btn btn-sm btn-outline-warning report-sim-survivors" data-report-id="${r.id}">Simular com sobreviventes</button>`:""}</div>`;
+    if ($("#reportPrev") && prevIndex !== null) $("#reportPrev").onclick = () => reportModal(reports[prevIndex]);
+    if ($("#reportNext") && nextIndex !== null) $("#reportNext").onclick = () => reportModal(reports[nextIndex]);
+    bootstrap.Modal.getOrCreateInstance($("#reportModal")).show();
+  }
+
   function reports() {
     const all=visibleReports(), filter=localStorage.getItem("rdg_report_filter")||"all", stateFilter=localStorage.getItem("rdg_report_state")||"all";
     const classify=r=>r.conquered?"conquest":r.intel?.spied?"spy":r.attacker?"battle":"info";
