@@ -255,3 +255,6 @@ body{background:linear-gradient(180deg,#172019 0,#0d120f 42%,#0a0f0c 100%);color
 .achievement-reward{font-size:.82rem;padding:.45rem .55rem;border:1px solid #ffffff14;border-radius:7px;background:#ffffff06}
 .recurring-attacks-panel{border-color:#ffc10755}
 @media(max-width:767px){.level-marker{max-width:38%;font-size:.75rem;padding:.24rem .34rem}.level-marker small{max-width:72px}.level-marker strong{font-size:.82rem}.modal-building-card{grid-template-columns:1fr auto}.modal-building-card .building-list-main{grid-column:1/-1}.modal-building-card .building-list-meta{grid-column:1}.modal-building-card .btn{grid-column:2;grid-row:2}}
+.recurring-target-list{max-height:260px;overflow:auto;border:1px solid #ffffff22;border-radius:8px;padding:8px;background:#0002}
+.recurring-target-row{padding:4px 6px;margin:0;border-radius:5px}
+.recurring-target-row:hover{background:#ffffff0b}

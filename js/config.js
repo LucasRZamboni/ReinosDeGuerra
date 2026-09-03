@@ -31,9 +31,9 @@ window.GAME_CONFIG = {
   startingVillagePoints: 28,
   // Todos os edifícios aparecem aqui para facilitar a personalização da pontuação inicial.
   // O valor indica quantos níveis iniciais são gratuitos para a pontuação.
-  minimumAttackPopulation: 10,
+  minimumAttackPopulation: 0,
   // Regras centralizadas: a interface e o motor devem ler estes valores, evitando hardcodes divergentes.
-  combatRules: { minimumAttackPopulation: 10, nobleLoyaltyHitsPerCommand: 1 },
+  combatRules: { minimumAttackPopulation: 0, nobleLoyaltyHitsPerCommand: 1 },
   trainingRules: { independentFacilities: true, releaseUnitByUnit: true, facilities: ["barracks", "stable", "workshop", "academy", "statue"] },
   heroRules: { enabled: true, maxPerOwner: 1, statueOnlyFirstVillage: true, allowBarbarians: false, allowBonusVillages: false },
   aiProfiles: {
