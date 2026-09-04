@@ -38,7 +38,7 @@
       heroRules: clone(C.heroRules || {}),
       respawnRules: clone(C.respawnRules || {playerMode:"optional",enemyMode:"disabled",enemyDelayMinutes:30}),
       performance: clone(C.performance || {reportLimit:750,recurringHistoryLimit:30,uiTickMs:1000}),
-      worldGeneration: clone(C.worldGeneration || {distribution:"centerOut",preserveTerrain:true}),
+      worldGeneration: clone(C.worldGeneration || {distribution:"centerOut",preserveTerrain:true,densityProfile:"medium",initialRadius:22,minVillageDistance:1.5,expansionStep:4,fillInnerGaps:true}),
       aiProfiles: clone(C.aiProfiles || {}),
       ai: clone(C.ai || { actionIntervalSeconds: 25 }),
       periodicResourceBonus: clone(C.periodicResourceBonus || {enabled:true,intervalMinutes:20,amount:1000,players:true,enemies:true,barbarians:true,bonusVillages:true}),
@@ -148,19 +148,53 @@
     const cx=(mapMinX()+mapMaxX())/2, cy=(mapMinY()+mapMaxY())/2;
     return Math.hypot(x-cx,y-cy);
   }
-  function villageCandidateCells(terrain,villages,settings=mergedSettings()){
-    const preserve=settings.worldGeneration?.preserveTerrain!==false;
-    const terrainMap=preserve?new Map((terrain||[]).map(c=>[`${c.x}|${c.y}`,c.type])):null;
+  function generationRules(settings=mergedSettings()){
+    const wg=settings.worldGeneration||{}, profile=wg.densityProfile||"medium";
+    const preset=profile==="low"?{radius:18,distance:2.4,step:5}:profile==="high"?{radius:26,distance:1.15,step:3}:{radius:22,distance:1.5,step:4};
+    return {
+      preserveTerrain:wg.preserveTerrain!==false,
+      distribution:wg.distribution||"centerOut",
+      initialRadius:Math.max(3,Number(wg.initialRadius)||preset.radius),
+      minVillageDistance:Math.max(0,Number(wg.minVillageDistance)||preset.distance),
+      expansionStep:Math.max(1,Number(wg.expansionStep)||preset.step),
+      fillInnerGaps:wg.fillInnerGaps!==false,
+    };
+  }
+  function villageCandidateCells(terrain,villages,settings=mergedSettings(),maxRadius=Infinity){
+    const rules=generationRules(settings), terrainMap=rules.preserveTerrain?new Map((terrain||[]).map(c=>[`${c.x}|${c.y}`,c.type])):null;
     const cells=[];
     for(let y=mapMinY();y<=mapMaxY();y++) for(let x=mapMinX();x<=mapMaxX();x++){
       if(villages[id(x,y)]) continue;
-      if(preserve && (terrainMap.get(`${x}|${y}`)||"grass")!=="grass") continue;
-      cells.push({x,y,d:centerDistance(x,y),j:Math.random()});
+      if(rules.preserveTerrain && (terrainMap.get(`${x}|${y}`)||"grass")!=="grass") continue;
+      const d=centerDistance(x,y); if(d>maxRadius) continue;
+      cells.push({x,y,d,j:Math.random()});
     }
-    const distribution=settings.worldGeneration?.distribution||"centerOut";
-    if(distribution==="random") cells.sort(()=>Math.random()-.5);
-    else cells.sort((a,b)=>(a.d+a.j*.85)-(b.d+b.j*.85));
+    if(rules.distribution==="random") cells.sort(()=>Math.random()-.5);
+    else if(rules.fillInnerGaps) cells.sort((a,b)=>(a.d+a.j*2.2)-(b.d+b.j*2.2));
+    else cells.sort((a,b)=>(a.d+a.j*5.5)-(b.d+b.j*5.5));
     return cells;
+  }
+  function selectVillageCells(terrain,villages,settings,count,{initial=false}={}){
+    const rules=generationRules(settings), selected=[], occupied=Object.values(villages).map(v=>({x:v.x,y:v.y}));
+    const maxMapRadius=Math.hypot((mapMaxX()-mapMinX()+1)/2,(mapMaxY()-mapMinY()+1)/2)+2;
+    let radius=rules.distribution==="random"?Infinity:(initial?rules.initialRadius:maxMapRadius);
+    const fits=(cell)=>occupied.every(p=>Math.hypot(cell.x-p.x,cell.y-p.y)>=rules.minVillageDistance) && selected.every(p=>Math.hypot(cell.x-p.x,cell.y-p.y)>=rules.minVillageDistance);
+    let safety=0;
+    while(selected.length<count && safety++<100){
+      const candidates=villageCandidateCells(terrain,{...villages,...Object.fromEntries(selected.map(c=>[id(c.x,c.y),c]))},settings,radius);
+      for(const cell of candidates){
+        if(selected.length>=count) break;
+        if(fits(cell)){selected.push(cell);occupied.push(cell);}
+      }
+      if(selected.length>=count || radius===Infinity || radius>=maxMapRadius) break;
+      radius=Math.min(maxMapRadius,radius+rules.expansionStep);
+    }
+    // Caso uma configuração extrema de distância impeça completar a densidade, relaxa apenas no fim.
+    if(selected.length<count){
+      const rest=villageCandidateCells(terrain,{...villages,...Object.fromEntries(selected.map(c=>[id(c.x,c.y),c]))},settings,Infinity);
+      for(const cell of rest){if(selected.length>=count)break;if(!selected.some(p=>p.x===cell.x&&p.y===cell.y))selected.push(cell);}
+    }
+    return selected;
   }
 
   function newState(options = {}) {
@@ -173,8 +207,8 @@
     startVillage.buildings={...startVillage.buildings,...settings.initialBuildingLevels};
     villages[startVillage.id]=startVillage;
     const target=Math.max(1,Math.round(C.mapWidth*C.mapHeight*C.villageDensity));
-    const candidates=villageCandidateCells(terrain,villages,settings);
-    for(const cell of candidates.slice(0,Math.max(0,target-1))){
+    const candidates=selectVillageCells(terrain,villages,settings,Math.max(0,target-1),{initial:true});
+    for(const cell of candidates){
       const village=makeVillage(cell.x,cell.y,null,settings);
       villages[village.id]=village;
     }
@@ -1179,7 +1213,7 @@
     if(now-(state.lastBarbarianSpawn||state.createdAt||now)<interval) return;
     const spawned=Number(state.spawnedBarbarians||0), max=Math.max(0,Number(cfg.maxNewVillages)||20); if(spawned>=max) return;
     let amount=Math.min(Math.max(1,Number(cfg.perCycle)||1),max-spawned);
-    const candidates=villageCandidateCells(state.terrain,state.villages,state.settings);
+    const candidates=selectVillageCells(state.terrain,state.villages,state.settings,amount,{initial:false});
     while(amount>0 && candidates.length){ const {x,y}=candidates.shift(); const v=makeVillage(x,y,null,state.settings); if(cfg.maximized) Object.entries(C.buildings).forEach(([k,b])=>v.buildings[k]=b.maxLevel); if(Math.random()*100 < (Number(cfg.bonusChance)||15)) v.bonusType=rollBonus(null,{...state.settings.bonus,chance:100}); state.villages[v.id]=v; amount--; state.spawnedBarbarians=(state.spawnedBarbarians||0)+1; }
     state.lastBarbarianSpawn=now;
   }
