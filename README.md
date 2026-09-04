@@ -370,3 +370,14 @@ Os antigos `villageMilestones` foram incorporados a `GAME_CONFIG.achievements`. 
 - Limites para relatórios/históricos acumulados e limpeza de diagnósticos obsoletos.
 - Atualizações da interface e autosave desacoplados para reduzir processamento desnecessário.
 - Movimentos exibidos na tela da aldeia limitados aos 40 próximos para evitar DOM excessivo.
+
+## Ajustes de interface e mapa
+- Botão Pausar do cabeçalho substituído por uma engrenagem que abre a Central do Jogo.
+- Central do Jogo reúne funções secundárias, possui botão Voltar e controle Pausar/Continuar.
+- Menu lateral personalizável: Aldeia, Mapa e Comandos são fixos; demais atalhos podem ser escolhidos pelo jogador.
+- Barra de recursos adaptada para mobile com números compactos e contenção de largura.
+- Central de Comandos com scroll interno para listas longas de movimentos e apoios.
+- Geração de novos mundos por padrão do centro para as bordas, preservando a densidade configurada.
+- Geração inicial e ciclos futuros podem usar apenas terreno livre (grama), evitando floresta, lago e morro.
+- Admin pode alternar distribuição Centro → bordas/Aleatória e preservação do terreno.
+- Saves atuais não têm aldeias existentes reposicionadas; a nova distribuição vale para novos mundos e novos nascimentos.

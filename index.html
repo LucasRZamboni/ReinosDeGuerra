@@ -39,7 +39,7 @@
       <div class="d-flex align-items-center gap-2">
         <span class="small text-uppercase">Ritmo</span>
         <span id="speedDisplay" class="badge text-bg-secondary">1×</span>
-        <button id="pauseBtn" class="btn btn-sm btn-outline-light">Pausar</button>
+        <button id="gameHubBtn" class="btn btn-sm btn-outline-light game-hub-button" title="Central do Jogo" aria-label="Abrir Central do Jogo">⚙</button>
         <span id="sessionRole" class="badge text-bg-dark"></span>
         <button id="logoutBtn" class="btn btn-sm btn-outline-warning">Sair</button>
       </div>
@@ -58,27 +58,23 @@
           <select id="villageSelect" class="form-select form-select-sm"></select>
           <div id="sidebarRenameVillage" class="mt-2"></div>
         </section>
-        <nav class="nav flex-column game-nav" aria-label="Seções do jogo">
-          <div class="nav-section-label">Principal</div>
-          <button class="nav-link" data-view="overview">◈ Visão Geral</button>
-          <button class="nav-link active" data-view="village">⌂ Aldeia</button>
-          <button class="nav-link" data-view="map">▦ Mapa</button>
-          <button class="nav-link" data-view="commands">➤ Comandos <span id="navCommandsCount" class="nav-count d-none"></span></button>
-          <button class="nav-link" data-view="reports">☷ Relatórios <span id="navReportsCount" class="nav-count d-none"></span></button>
-          <div class="nav-section-label">Gestão</div>
-          <button class="nav-link" data-view="villages">♜ Aldeias</button>
-          <button class="nav-link" data-view="army">⚔ Exército</button>
-          <button class="nav-link" data-view="market">⚖ Mercado</button>
-          <button class="nav-link" data-view="ranking">🏆 Ranking</button>
-          <button class="nav-link" data-view="achievements">✦ Conquistas</button>
-          <button class="nav-link" data-view="simulator">⚔ Simulador</button>
-          <div class="nav-section-label">Sistema</div>
-          <button class="nav-link" data-view="settings">⚙ Configurações</button>
-          <button class="nav-link admin-link" data-view="admin">★ Administração</button>
+        <nav class="nav flex-column game-nav" aria-label="Atalhos do jogo">
+          <button class="nav-link quick-nav optional-quick" data-view="overview" data-quick-key="overview">◈ Visão Geral</button>
+          <button class="nav-link quick-nav essential-nav active" data-view="village">⌂ Aldeia</button>
+          <button class="nav-link quick-nav essential-nav" data-view="map">▦ Mapa</button>
+          <button class="nav-link quick-nav essential-nav" data-view="commands">➤ Comandos <span id="navCommandsCount" class="nav-count d-none"></span></button>
+          <button class="nav-link quick-nav optional-quick" data-view="reports" data-quick-key="reports">☷ Relatórios <span id="navReportsCount" class="nav-count d-none"></span></button>
+          <button class="nav-link quick-nav optional-quick" data-view="villages" data-quick-key="villages">♜ Aldeias</button>
+          <button class="nav-link quick-nav optional-quick" data-view="army" data-quick-key="army">⚔ Exército</button>
+          <button class="nav-link quick-nav optional-quick" data-view="market" data-quick-key="market">⚖ Mercado</button>
+          <button class="nav-link quick-nav optional-quick" data-view="ranking" data-quick-key="ranking">🏆 Ranking</button>
+          <button class="nav-link quick-nav optional-quick" data-view="achievements" data-quick-key="achievements">✦ Conquistas</button>
+          <button class="nav-link quick-nav optional-quick" data-view="simulator" data-quick-key="simulator">⚔ Simulador</button>
         </nav>
       </aside>
 
       <section class="col-lg-9 col-xl-10">
+        <div id="view-hub" class="game-view d-none"></div>
         <div id="view-overview" class="game-view d-none"></div>
         <div id="view-village" class="game-view"></div>
         <div id="view-army" class="game-view d-none"></div>

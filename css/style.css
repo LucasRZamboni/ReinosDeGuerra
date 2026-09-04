@@ -301,3 +301,23 @@ body{background:linear-gradient(180deg,#172019 0,#0d120f 42%,#0a0f0c 100%);color
   .level-marker small{font-size:.62rem;max-width:78px}
   .building-level-badge{font-size:.54rem!important}
 }
+
+/* Central do Jogo e menu compacto */
+.game-hub-button{font-size:1.05rem;min-width:2.25rem}
+.hub-menu-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.75rem}
+.hub-menu-card{border:1px solid var(--line);padding:1rem;text-align:left;color:inherit;display:grid;grid-template-columns:auto 1fr;gap:.25rem .65rem;align-items:center;cursor:pointer;min-height:86px}
+.hub-menu-card>span{font-size:1.35rem;grid-row:1/3}.hub-menu-card>small{color:var(--muted);line-height:1.25}.hub-menu-card:hover{transform:translateY(-1px);border-color:#d5b458}
+.hub-shortcut-options{display:flex;flex-wrap:wrap;gap:.55rem 1rem}.hub-shortcut-check{min-width:150px}
+.admin-hub-card{border-color:#c69d3b88}
+/* Central de comandos: listas longas não esticam a página */
+.commands-scroll{max-height:420px;overflow:auto}.supports-scroll{max-height:300px;overflow:auto}
+.commands-scroll thead th,.supports-scroll thead th{position:sticky;top:0;z-index:2;background:#171b1a}
+/* Recursos responsivos */
+.resource-bar{min-width:0;max-width:100%;overflow:hidden}.resource-pill{min-width:0;max-width:100%;overflow:hidden}.resource-pill strong{white-space:nowrap;font-size:clamp(.68rem,1.4vw,.9rem)}
+@media(max-width:575px){
+  .game-header .container-fluid{gap:.45rem!important}.brand{font-size:.88rem}.resource-bar{order:3;width:100%;display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));gap:.3rem!important}
+  .resource-pill{padding:.28rem .25rem!important;justify-content:center!important;font-size:.72rem;min-width:0!important}.resource-pill strong{font-size:.66rem;overflow:hidden;text-overflow:ellipsis}
+  .resource-bar .resource-pill:nth-child(4),.resource-bar .resource-pill:nth-child(5){grid-column:span 1}
+  .commands-scroll{max-height:52vh}.hub-menu-grid{grid-template-columns:1fr 1fr}.hub-menu-card{min-width:0;padding:.75rem;font-size:.9rem}
+}
+@media(max-width:390px){.hub-menu-grid{grid-template-columns:1fr}.resource-bar{grid-template-columns:repeat(2,minmax(0,1fr))}}
