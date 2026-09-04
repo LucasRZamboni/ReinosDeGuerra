@@ -4,13 +4,17 @@
   const norm=s=>String(s||"").trim().toLowerCase();
   function accounts(){ try{return JSON.parse(localStorage.getItem(ACCOUNTS_KEY)||"{}");}catch{return {};} }
   function saveAccounts(a){ localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(a)); }
-  function current(){ try{return JSON.parse(sessionStorage.getItem(SESSION_KEY)||"null");}catch{return null;} }
+  function sessionStore(){
+    try { const k="__rdg_test__"; sessionStorage.setItem(k,"1"); sessionStorage.removeItem(k); return sessionStorage; }
+    catch(e){ return localStorage; }
+  }
+  function current(){ try{return JSON.parse(sessionStore().getItem(SESSION_KEY)||"null");}catch{return null;} }
   function playerId(username){ return `player:${norm(username).replace(/[^a-z0-9_.-]/g,"_")}`; }
   function login(username,password){
     username=String(username||"").trim(); password=String(password||"");
     const admin=cfg().admin;
     if(admin&&norm(username)===norm(admin.username)&&password===String(admin.password)){
-      const s={username:admin.username,role:"admin",playerId:"admin",loginAt:Date.now()}; sessionStorage.setItem(SESSION_KEY,JSON.stringify(s)); return s;
+      const s={username:admin.username,role:"admin",playerId:"admin",loginAt:Date.now()}; sessionStore().setItem(SESSION_KEY,JSON.stringify(s)); return s;
     }
     const a=accounts(), key=norm(username);
     // Compatibilidade: versões antigas podem ter salvo a conta com uma chave diferente
@@ -25,7 +29,7 @@
     }
     const found=a[key] || u;
     if(found&&password===String(found.password)){
-      const s={username:found.username,role:"player",playerId:found.playerId||playerId(found.username),loginAt:Date.now()}; sessionStorage.setItem(SESSION_KEY,JSON.stringify(s)); return s;
+      const s={username:found.username,role:"player",playerId:found.playerId||playerId(found.username),loginAt:Date.now()}; sessionStore().setItem(SESSION_KEY,JSON.stringify(s)); return s;
     }
     return null;
   }
@@ -38,7 +42,7 @@
     a[key]={username,password,createdAt:Date.now(),playerId:playerId(username)}; saveAccounts(a);
     return {ok:true,account:a[key]};
   }
-  function logout(){ sessionStorage.removeItem(SESSION_KEY); location.reload(); }
+  function logout(){ try{sessionStorage.removeItem(SESSION_KEY);}catch{} try{localStorage.removeItem(SESSION_KEY);}catch{} location.reload(); }
   function isAdmin(){ return current()?.role==="admin"; }
   window.RDGAuth={current,login,register,logout,isAdmin,accounts,playerId};
 })();

@@ -1405,7 +1405,7 @@
     G.setActive(e.target.value);
     view = "village";
   });
-  $("#gameHubBtn").onclick = () => { hubReturnView=view==="hub"?(hubReturnView||"village"):view; view="hub"; render(true); };
+  $("#gameHubBtn")?.addEventListener("click", () => { hubReturnView=view==="hub"?(hubReturnView||"village"):view; view="hub"; render(true); });
   $("#attackForm").onsubmit = (e) => {
     e.preventDefault();
     const f = new FormData(e.target),
@@ -1503,7 +1503,7 @@
     const badge=$("#sessionRole"); if(badge) badge.textContent=isAdmin()?`Administrador · ${session.username}`:`Jogador · ${session.username}`;
     return true;
   }
-  $("#loginForm").onsubmit = (e) => {
+  if ($("#loginForm")) $("#loginForm").onsubmit = (e) => {
     e.preventDefault(); const f=new FormData(e.currentTarget);
     if (!window.RDGAuth.login(f.get("username"),f.get("password"))) { $("#loginError").textContent="Usuário ou senha inválidos."; $("#loginError").classList.remove("d-none"); return; }
     $("#loginError").classList.add("d-none");
@@ -1513,10 +1513,10 @@
     try { G.ensureCurrentPlayer(); view="village"; render(true); }
     catch(err) { console.error("Falha ao iniciar o mundo após login:",err); showInfo("Erro ao carregar o mundo",`O login foi aceito, mas ocorreu um erro ao carregar o mundo.<div class="small text-secondary mt-2">${String(err?.message||err)}</div>`); }
   };
-  $("#showRegisterBtn").onclick=()=>{$("#loginForm").classList.add("d-none");$("#registerForm").classList.remove("d-none");};
-  $("#backLoginBtn").onclick=()=>{$("#registerForm").classList.add("d-none");$("#loginForm").classList.remove("d-none");};
-  $("#registerForm").onsubmit=(e)=>{ e.preventDefault(); const f=new FormData(e.currentTarget), r=window.RDGAuth.register(f.get("username"),f.get("password")); if(!r.ok){$("#registerError").textContent=r.error;$("#registerError").classList.remove("d-none");return;} window.RDGAuth.login(f.get("username"),f.get("password")); G.ensureCurrentPlayer(); applySessionUI(); view="village"; render(true); };
-  $("#logoutBtn").onclick=()=>window.RDGAuth.logout();
+  $("#showRegisterBtn")?.addEventListener("click",()=>{$("#loginForm")?.classList.add("d-none");$("#registerForm")?.classList.remove("d-none");});
+  $("#backLoginBtn")?.addEventListener("click",()=>{$("#registerForm")?.classList.add("d-none");$("#loginForm")?.classList.remove("d-none");});
+  if ($("#registerForm")) $("#registerForm").onsubmit=(e)=>{ e.preventDefault(); const f=new FormData(e.currentTarget), r=window.RDGAuth.register(f.get("username"),f.get("password")); if(!r.ok){$("#registerError").textContent=r.error;$("#registerError").classList.remove("d-none");return;} window.RDGAuth.login(f.get("username"),f.get("password")); G.ensureCurrentPlayer(); applySessionUI(); view="village"; render(true); };
+  $("#logoutBtn")?.addEventListener("click",()=>window.RDGAuth.logout());
   document.querySelectorAll('[data-view="admin"]').forEach(b=>b.addEventListener("click",e=>{ if(!isAdmin()){e.preventDefault();e.stopImmediatePropagation();requireAdmin();} },true));
   if (applySessionUI()) { G.ensureCurrentPlayer(); render(true); }
 })();
