@@ -261,3 +261,6 @@ body{background:linear-gradient(180deg,#172019 0,#0d120f 42%,#0a0f0c 100%);color
 
 .nav-section-label{margin:.75rem .75rem .25rem;font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;color:var(--bs-secondary-color);font-weight:700}
 .persistent-attack-alert{position:relative;border-width:1px;box-shadow:0 6px 18px rgba(0,0,0,.18)}
+
+.nav-count{float:right;min-width:1.3rem;padding:.05rem .35rem;border-radius:999px;background:var(--bs-warning);color:#111;font-size:.7rem;text-align:center;font-weight:800}
+.recurring-target-list{max-height:320px;overflow:auto}

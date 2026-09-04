@@ -704,7 +704,7 @@
     );
   }
   function combatKey(v){ return v?.owner==="enemy" ? (v.aiId||`ai-${v.id}`) : v?.owner==="player" ? v.ownerId : null; }
-  function combatStat(key){ if(!key) return null; return state.combatStats[key]||(state.combatStats[key]={attackerPoints:0,defenderPoints:0,conquests:0,enemyPopulationDefeated:0,villagesPlundered:0,resourcesPlundered:0,uniqueEnemiesAttacked:[],catapultLevelsDestroyed:0,wallLevelsDestroyed:0,noblesDefeated:0,armiesDestroyed:0,buildingLevelsBuilt:0,unitsRecruited:0,marketTrades:0}); }
+  function combatStat(key){ if(!key) return null; return state.combatStats[key]||(state.combatStats[key]={attackerPoints:0,defenderPoints:0,supporterPoints:0,conquests:0,enemyPopulationDefeated:0,villagesPlundered:0,resourcesPlundered:0,uniqueEnemiesAttacked:[],catapultLevelsDestroyed:0,wallLevelsDestroyed:0,noblesDefeated:0,armiesDestroyed:0,buildingLevelsBuilt:0,unitsRecruited:0,marketTrades:0}); }
   function unitLossScore(units){ return Object.entries(units||{}).reduce((n,[k,q])=>n+q*(C.units[k]?.population||1),0); }
   function sendSupport(targetId, units) {
     const from=active(), target=state.villages[targetId]; if(!from||!target) return notify("Destino inválido.","warning");
@@ -745,18 +745,18 @@
         cav: atkRaw ? types.cav / atkRaw : 0,
         arch: atkRaw ? types.arch / atkRaw : 0,
       },
-      defRaw = C.baseVillageDefense + strength(
-        target.units,
-        "defense",
-        mix,
-        target.buildings.wall || 0,
-      ),
+      stationedSupports = Object.values(state.supportStationed||{}).filter(s=>s.targetId===target.id),
+      supportUnits = stationedSupports.reduce((sum,s)=>{Object.entries(s.units||{}).forEach(([k,q])=>sum[k]=(sum[k]||0)+(Number(q)||0));return sum;},emptyUnits()),
+      combinedDefenseUnits = Object.fromEntries(Object.keys(C.units).map(k=>[k,(target.units[k]||0)+(supportUnits[k]||0)])),
+      ownDefenseStrength = strength(target.units,"defense",mix,target.buildings.wall||0),
+      supportDefenseStrength = stationedSupports.map(s=>({s,score:strength(s.units||{},"defense",mix,target.buildings.wall||0)})),
+      defRaw = C.baseVillageDefense + ownDefenseStrength + supportDefenseStrength.reduce((n,x)=>n+x.score,0),
       atk = atkRaw * (0.9 + Math.random() * 0.2),
       def = defRaw * (0.9 + Math.random() * 0.2),
       ratio = atk / (atk + def || 1),
       win = atk > def,
       attackBefore = clone(m.units),
-      defBefore = clone(target.units),
+      defBefore = clone(combinedDefenseUnits),
       survivors = {};
     // Curva de baixas baseada na relação entre as forças. O lado derrotado é
     // destruído; o vencedor perde proporcionalmente à força do adversário.
@@ -779,10 +779,18 @@
       const q = target.units[k] || 0;
       target.units[k] = Math.max(0, q - Math.round(q * defenderLossRate));
     });
-    const atkLosses=losses(attackBefore,survivors), defLosses=losses(defBefore,target.units);
+    stationedSupports.forEach(s=>{
+      const rec=state.supportStationed[s.id]; if(!rec)return;
+      Object.keys(rec.units||{}).forEach(k=>{const q=rec.units[k]||0;rec.units[k]=Math.max(0,q-Math.round(q*defenderLossRate));});
+      if(!Object.values(rec.units||{}).some(q=>q>0)) delete state.supportStationed[s.id];
+    });
+    const combinedAfter=Object.fromEntries(Object.keys(C.units).map(k=>[k,(target.units[k]||0)+Object.values(state.supportStationed||{}).filter(s=>s.targetId===target.id).reduce((n,s)=>n+(s.units?.[k]||0),0)]));
+    const atkLosses=losses(attackBefore,survivors), defLosses=losses(defBefore,combinedAfter);
     const ast=combatStat(attackerKey), dst=combatStat(defenderKey);
-    if(ast){ ast.attackerPoints += Math.round(unitLossScore(defLosses)); ast.enemyPopulationDefeated=(ast.enemyPopulationDefeated||0)+unitLossScore(defLosses); ast.noblesDefeated=(ast.noblesDefeated||0)+(defLosses.noble||0); ast.uniqueEnemiesAttacked=ast.uniqueEnemiesAttacked||[]; if(defenderKey&&!ast.uniqueEnemiesAttacked.includes(defenderKey))ast.uniqueEnemiesAttacked.push(defenderKey); if(Object.values(target.units).every(q=>!q))ast.armiesDestroyed=(ast.armiesDestroyed||0)+1; }
-    if(dst) dst.defenderPoints += Math.round(unitLossScore(atkLosses));
+    if(ast){ ast.attackerPoints += Math.round(unitLossScore(defLosses)); ast.enemyPopulationDefeated=(ast.enemyPopulationDefeated||0)+unitLossScore(defLosses); ast.noblesDefeated=(ast.noblesDefeated||0)+(defLosses.noble||0); ast.uniqueEnemiesAttacked=ast.uniqueEnemiesAttacked||[]; if(defenderKey&&!ast.uniqueEnemiesAttacked.includes(defenderKey))ast.uniqueEnemiesAttacked.push(defenderKey); if(Object.values(combinedAfter).every(q=>!q))ast.armiesDestroyed=(ast.armiesDestroyed||0)+1; }
+    const lostScore=Math.round(unitLossScore(atkLosses)), totalDefContribution=Math.max(1,ownDefenseStrength+supportDefenseStrength.reduce((n,x)=>n+x.score,0));
+    if(dst) dst.defenderPoints += Math.round(lostScore*(ownDefenseStrength/totalDefContribution));
+    supportDefenseStrength.forEach(({s,score})=>{const home=state.villages[s.fromId],key=home?combatKey(home):null,st=combatStat(key);if(st)st.supporterPoints=(st.supporterPoints||0)+Math.round(lostScore*(score/totalDefContribution));});
     const loyaltyBefore = Math.max(0, Number(target.loyalty ?? C.baseLoyalty));
     let loot = { wood: 0, clay: 0, iron: 0 },
       conquered = false,
@@ -897,7 +905,7 @@
       defending: {
         before: defBefore,
         losses: losses(defBefore, target.units),
-        survivors: clone(target.units),
+        survivors: clone(combinedAfter),
       },
       loot,
       conquered,
@@ -1389,7 +1397,8 @@
   function playerPreferences(pid=currentPlayerId()) {
     state.players ||= {};
     const p = state.players[pid] ||= {id:pid};
-    p.preferences ||= {attackAlert:false,attackAlertStrength:true,mapCommandIndicators:true,compactNotifications:false};
+    p.preferences ||= {attackAlert:false,attackAlertStrength:true,mapCommandIndicators:true,compactNotifications:false,reportTypes:{attack:true,defense:true,support:true,spy:true,conquest:true,info:true}};
+    p.villageGroups ||= {};
     return p.preferences;
   }
   function updatePlayerPreferences(patch={}) {
@@ -1398,6 +1407,23 @@
     S.save(state);
     window.dispatchEvent(new Event("game-update"));
     return p;
+  }
+
+  function villageGroups(pid=currentPlayerId()){
+    state.players ||= {}; const p=state.players[pid] ||= {id:pid}; p.villageGroups ||= {}; return p.villageGroups;
+  }
+  function setVillageGroup(ids,group){
+    const map=villageGroups(); (ids||[]).forEach(id=>{if(isMine(state.villages[id])){if(group)map[id]=String(group);else delete map[id];}});
+    S.save(state); saveRender();
+  }
+  function deleteRecurringAttack(id){
+    const before=(state.recurringAttacks||[]).length;
+    state.recurringAttacks=(state.recurringAttacks||[]).filter(x=>!(x.id===id&&(isAdmin()||x.ownerId===currentPlayerId())));
+    if(state.recurringAttacks.length!==before){S.save(state);saveRender();return true;} return false;
+  }
+  function clearFinishedRecurring(){
+    state.recurringAttacks=(state.recurringAttacks||[]).filter(x=>isAdmin()? !["finished","cancelled"].includes(x.status) : !(x.ownerId===currentPlayerId()&&["finished","cancelled"].includes(x.status)));
+    S.save(state); saveRender();
   }
 
   function ensureCurrentPlayer() {
@@ -1483,7 +1509,7 @@
   function adminBulkOwner(ids,ownerId){ if(!isAdmin())return; (ids||[]).forEach(vid=>{const v=state.villages[vid];if(!v)return;if(ownerId==="barbarian"){v.owner=null;v.ownerId=null;}else if(String(ownerId).startsWith("ai:")){v.owner="enemy";v.ownerId=null;v.aiId=String(ownerId).slice(3); const src=Object.values(state.villages).find(x=>x.owner==="enemy"&&x.aiId===v.aiId); v.aiProfile=src?.aiProfile||v.aiProfile||"expansive";}else if(ownerId==="enemy"){v.owner="enemy";v.ownerId=null;v.aiId=v.aiId||`ai-${v.id}`;}else{v.owner="player";v.ownerId=ownerId;v.aiId=null;}});saveRender();notify("Proprietário atualizado em massa.");}
 
   window.Game = {
-    ensureCurrentPlayer, restartCurrentPlayer, playerPreferences, updatePlayerPreferences, normalizePaladins, isMine, currentPlayerId, achievementProgress, refreshAchievements, claimAchievement, buildingPopulation, buildAt, recruitAt, adminBulkUpdate, bulkBuild, bulkRecruitPreset, adminBulkFinish, adminBulkOwner,
+    ensureCurrentPlayer, restartCurrentPlayer, playerPreferences, updatePlayerPreferences, villageGroups, setVillageGroup, deleteRecurringAttack, clearFinishedRecurring, normalizePaladins, isMine, currentPlayerId, achievementProgress, refreshAchievements, claimAchievement, buildingPopulation, buildAt, recruitAt, adminBulkUpdate, bulkBuild, bulkRecruitPreset, adminBulkFinish, adminBulkOwner,
     get state() {
       return state;
     },
