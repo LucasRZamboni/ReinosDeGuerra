@@ -358,3 +358,15 @@ Os antigos `villageMilestones` foram incorporados a `GAME_CONFIG.achievements`. 
 - Ferramenta de simulação do Admin foi separada dos dados cadastrais.
 - Ataques recorrentes ganharam destaque na tela Comandos.
 - Botões de relatório agora navegam para o Simulador com os dados carregados.
+
+## Bloco 3
+- Tela da aldeia: nomes dos edifícios priorizados e nível reduzido visualmente.
+- Evolução visual individual dos edifícios em quatro faixas de nível.
+- Estágios por pontuação: Posto, Povoado, Aldeia, Vila, Cidade e Fortaleza.
+- Recompensas únicas por estágio: 5%, 7%, 9%, 12%, 15% e 20% da capacidade atual do Armazém em cada recurso.
+- Recompensas respeitam o limite do Armazém e processam múltiplos marcos alcançados.
+- Saves antigos têm marcos já ultrapassados registrados como concluídos para evitar recompensa retroativa em massa.
+- Exibição da próxima recompensa diretamente no progresso da aldeia.
+- Limites para relatórios/históricos acumulados e limpeza de diagnósticos obsoletos.
+- Atualizações da interface e autosave desacoplados para reduzir processamento desnecessário.
+- Movimentos exibidos na tela da aldeia limitados aos 40 próximos para evitar DOM excessivo.

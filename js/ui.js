@@ -166,16 +166,18 @@
     large: "Fortaleza",
   };
   function progressInfo(v) {
-    const p = G.points(v),
-      steps = [80, 180, 350, 700, 1400, 2800],
-      next = steps.find((n) => p < n) || steps.at(-1);
+    const info=G.villageStageInfo(v);
+    if(!info.next) return {percent:100,label:"Estágio máximo",reward:"Todos os estágios concluídos"};
+    const cap=G.cap(v), amount=Math.max(1,Math.floor(cap*info.next.rewardPercent/100));
     return {
-      percent: Math.min(100, Math.round((p / next) * 100)),
-      label:
-        p >= steps.at(-1)
-          ? "Metrópole fortificada"
-          : `${p}/${next} pts para o próximo visual`,
+      percent:info.percent,
+      label:`${info.points}/${info.next.target} pts`,
+      reward:`Ao alcançar ${info.next.target}: ${info.next.rewardPercent}% do Armazém = até ${fmt(amount)} de cada recurso`
     };
+  }
+  function buildingTier(k,v){
+    const b=C.buildings[k],lv=v.buildings[k]||0,max=Math.max(1,b?.maxLevel||1),ratio=lv/max;
+    return ratio>=1?4:ratio>=.66?3:ratio>=.33?2:1;
   }
   function buildingAction(k) {
     return k === "keep"
@@ -237,7 +239,8 @@
         .map(([k, b], i) => {
           const lv = v.buildings[k] || 0;
           if (lv < 1) return "";
-          return `<button class="level-marker" ${buildingAction(k)} style="left:${positions[i][0]}%;top:${positions[i][1]}%" title="${b.name}: nível ${lv}/${b.maxLevel}" aria-label="${b.name}, nível ${lv}">${showBuildingNames?`<small>${b.name}</small> `:""}<strong>${lv}</strong></button>`;
+          const tier=buildingTier(k,v);
+          return `<button class="level-marker building-tier-${tier}" ${buildingAction(k)} style="left:${positions[i][0]}%;top:${positions[i][1]}%" title="${b.name}: nível ${lv}/${b.maxLevel}" aria-label="${b.name}, nível ${lv}"><span class="building-marker-icon">${b.icon}</span>${showBuildingNames?`<small>${b.name}</small>`:""}<strong class="building-level-badge">Nv.${lv}</strong></button>`;
         })
         .join(""),
       q = v.buildQueue[0],
@@ -260,6 +263,8 @@
       movements =
         G.state.movements
           .filter((m) => m.fromId === v.id || m.targetId === v.id)
+          .sort((a,b)=>a.end-b.end)
+          .slice(0,40)
           .map(
             (m) =>
               `<div class="queue-item">${m.outbound ? "⚔ Em marcha" : "↩ Retornando"} · ${G.state.villages[m.targetId]?.name || "destino"}<span class="countdown float-end" data-countdown="${m.end}">${remaining(m.end)}</span></div>`,
@@ -269,9 +274,9 @@
     const center =
       villageMode === "image"
         ? `<div class="village-board-wrap"><div class="village-stage compact-stage"><img class="village-art" src="assets/village-${growthAsset(v)}.png" alt="Vista ilustrada de ${v.name}">${pins}</div></div><div class="small text-secondary mt-2">Clique em um nível para abrir ou evoluir o edifício.</div>`
-        : `<div class="building-mobile-list">${Object.entries(C.buildings).map(([k,b])=>{const lv=v.buildings[k]||0,locked=!G.meets(v,b.requires),max=lv>=b.maxLevel;if(!showAllBuildings&&locked&&lv===0)return"";if(hideMaxBuildings&&max)return"";const c=max?null:G.buildingCost(k,v);return `<article class="building-list-card" ${buildingAction(k)}><div class="building-list-main"><strong>${b.icon} ${b.name}</strong><span>Nv. ${lv}/${b.maxLevel}</span></div><div class="building-list-meta">${max?"Nível máximo":locked?"Bloqueado":`${costs(c)} · ${G.buildingTime(k,v)}s`}</div><button type="button" class="btn btn-sm btn-success list-build-btn" data-building="${k}" ${max||locked?"disabled":""}>${max?"Máximo":locked?"Bloqueado":"Evoluir"}</button></article>`}).join("")}</div>`;
+        : `<div class="building-mobile-list">${Object.entries(C.buildings).map(([k,b])=>{const lv=v.buildings[k]||0,locked=!G.meets(v,b.requires),max=lv>=b.maxLevel;if(!showAllBuildings&&locked&&lv===0)return"";if(hideMaxBuildings&&max)return"";const c=max?null:G.buildingCost(k,v);return `<article class="building-list-card" ${buildingAction(k)}><div class="building-list-main"><strong class="building-readable-name">${b.icon} ${b.name}</strong><span class="building-level-text">Nv. ${lv}/${b.maxLevel}</span></div><div class="building-list-meta">${max?"Nível máximo":locked?"Bloqueado":`${costs(c)} · ${G.buildingTime(k,v)}s`}</div><button type="button" class="btn btn-sm btn-success list-build-btn" data-building="${k}" ${max||locked?"disabled":""}>${max?"Máximo":locked?"Bloqueado":"Evoluir"}</button></article>`}).join("")}</div>`;
     $("#view-village").innerHTML =
-      `<div class="section-title"><div><div class="eyebrow">Vista do assentamento</div><h2>${v.name} <small class="text-secondary">${G.points(v)} pts</small></h2>${bonusLabel(v)}</div><div class="village-title-actions"><div class="btn-group btn-group-sm"><button class="btn btn-outline-light village-mode ${villageMode === "image" ? "active" : ""}" data-mode="image">Ilustração</button><button class="btn btn-outline-light village-mode ${villageMode === "list" ? "active" : ""}" data-mode="list">Lista</button></div><button id="toggleAllBuildings" class="btn btn-sm btn-outline-secondary" type="button">${showAllBuildings ? "Ocultar bloqueados" : "Mostrar edifícios"}</button><button id="toggleMaxBuildings" class="btn btn-sm btn-outline-info" type="button">${hideMaxBuildings ? "Mostrar finalizados" : "Ocultar finalizados"}</button><button id="toggleBuildingNames" class="btn btn-sm btn-outline-light" type="button">${showBuildingNames?"Ocultar nomes":"Mostrar nomes"}</button></div></div>${q ? `<div class="queue-item mb-3"><strong>Em construção:</strong> ${C.buildings[q.building].name}<span class="countdown float-end" data-countdown="${q.end}">${remaining(q.end)}</span></div>` : ""}<div class="village-progress mb-2"><div><span>Estágio: ${growthNames[growthAsset(v)]}</span><span>${progress.label}</span></div><div class="progress"><div class="progress-bar" style="width:${progress.percent}%"></div></div></div><div class="row g-3 align-items-stretch village-main-layout"><div class="col-lg-8 village-main-area">${center}</div><div class="col-lg-4 village-side-queues"><section class="panel p-3 village-queue-panel"><h3 class="h6">Tropas na aldeia</h3><div class="queue-scroll">${
+      `<div class="section-title"><div><div class="eyebrow">Vista do assentamento</div><h2>${v.name} <small class="text-secondary">${G.points(v)} pts</small></h2>${bonusLabel(v)}</div><div class="village-title-actions"><div class="btn-group btn-group-sm"><button class="btn btn-outline-light village-mode ${villageMode === "image" ? "active" : ""}" data-mode="image">Ilustração</button><button class="btn btn-outline-light village-mode ${villageMode === "list" ? "active" : ""}" data-mode="list">Lista</button></div><button id="toggleAllBuildings" class="btn btn-sm btn-outline-secondary" type="button">${showAllBuildings ? "Ocultar bloqueados" : "Mostrar edifícios"}</button><button id="toggleMaxBuildings" class="btn btn-sm btn-outline-info" type="button">${hideMaxBuildings ? "Mostrar finalizados" : "Ocultar finalizados"}</button><button id="toggleBuildingNames" class="btn btn-sm btn-outline-light" type="button">${showBuildingNames?"Ocultar nomes":"Mostrar nomes"}</button></div></div>${q ? `<div class="queue-item mb-3"><strong>Em construção:</strong> ${C.buildings[q.building].name}<span class="countdown float-end" data-countdown="${q.end}">${remaining(q.end)}</span></div>` : ""}<div class="village-progress mb-2"><div><span>Estágio: ${growthNames[growthAsset(v)]}</span><span>${progress.label}</span></div><div class="progress"><div class="progress-bar" style="width:${progress.percent}%"></div></div><div class="stage-reward-preview">🎁 ${progress.reward}</div></div><div class="row g-3 align-items-stretch village-main-layout"><div class="col-lg-8 village-main-area">${center}</div><div class="col-lg-4 village-side-queues"><section class="panel p-3 village-queue-panel"><h3 class="h6">Tropas na aldeia</h3><div class="queue-scroll">${
         Object.entries(C.units)
           .filter(([k]) => (v.units[k] || 0) > 0)
           .map(
@@ -289,7 +294,7 @@
       if(!showAllBuildings&&locked&&lv===0)return "";
       if(hideMaxBuildings&&max)return "";
       const c=max?null:G.buildingCost(k,v);
-      return `<article class="building-list-card modal-building-card" data-building-card="${k}"><div class="building-list-main"><strong>${b.icon} ${b.name}</strong><span>Nv. ${lv}/${b.maxLevel}</span></div><div class="building-list-meta">${max?"Nível máximo":locked?`Bloqueado ${requirement(b.requires,v)}`:`${costs(c)} · ${G.buildingTime(k,v)}s`}</div><button type="button" class="btn btn-sm btn-success modal-build-btn" data-building="${k}" ${max||locked?"disabled":""}>${max?"Máximo":locked?"Bloqueado":"Evoluir"}</button></article>`;
+      return `<article class="building-list-card modal-building-card" data-building-card="${k}"><div class="building-list-main"><strong class="building-readable-name">${b.icon} ${b.name}</strong><span class="building-level-text">Nv. ${lv}/${b.maxLevel}</span></div><div class="building-list-meta">${max?"Nível máximo":locked?`Bloqueado ${requirement(b.requires,v)}`:`${costs(c)} · ${G.buildingTime(k,v)}s`}</div><button type="button" class="btn btn-sm btn-success modal-build-btn" data-building="${k}" ${max||locked?"disabled":""}>${max?"Máximo":locked?"Bloqueado":"Evoluir"}</button></article>`;
     }).join("");
     $("#buildingsModalBody").innerHTML = `<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2"><div class="small text-secondary">Edifícios ocultos aparecem quando seus requisitos são alcançados.</div><button id="modalToggleAllBuildings" class="btn btn-sm btn-outline-secondary" type="button">${showAllBuildings ? "Ocultar bloqueados" : "Mostrar edifícios"}</button></div><div class="building-mobile-list">${cards}</div>`;
     $("#modalToggleAllBuildings").onclick = () => { showAllBuildings=!showAllBuildings; localStorage.setItem("reinosDeGuerra_showAllBuildings",showAllBuildings?"1":"0"); buildingsModal(); bindDynamic(); };

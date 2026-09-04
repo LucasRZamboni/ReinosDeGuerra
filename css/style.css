@@ -264,3 +264,40 @@ body{background:linear-gradient(180deg,#172019 0,#0d120f 42%,#0a0f0c 100%);color
 
 .nav-count{float:right;min-width:1.3rem;padding:.05rem .35rem;border-radius:999px;background:var(--bs-warning);color:#111;font-size:.7rem;text-align:center;font-weight:800}
 .recurring-target-list{max-height:320px;overflow:auto}
+
+/* Bloco 3: legibilidade, evolução visual e recompensas */
+.level-marker{
+  width:auto;
+  height:auto;
+  min-width:34px;
+  max-width:150px;
+  padding:.22rem .34rem;
+}
+.level-marker small{
+  font-size:.68rem;
+  font-weight:750;
+  max-width:104px;
+  line-height:1.05;
+  color:#fff8dc;
+}
+.building-marker-icon{font-size:.82rem;line-height:1}
+.building-level-badge{
+  font-size:.58rem!important;
+  line-height:1;
+  padding:.16rem .22rem;
+  border-radius:4px;
+  background:#0c130ddd;
+  color:#f5da8d;
+  border:1px solid #ffffff20;
+}
+.building-tier-1{filter:saturate(.78) brightness(.92)}
+.building-tier-2{box-shadow:0 2px 5px #000b,0 0 0 1px #b99d5c55}
+.building-tier-3{box-shadow:0 3px 8px #000c,0 0 7px #e1bc6555;border-color:#e5c77d}
+.building-tier-4{box-shadow:0 3px 10px #000d,0 0 11px #ffe08a88;border-color:#ffe199;background:linear-gradient(#8b7639,#5b471c)}
+.building-readable-name{font-size:.96rem;line-height:1.15}
+.building-level-text{font-size:.7rem;color:var(--muted);white-space:nowrap}
+.stage-reward-preview{margin-top:.4rem;font-size:.72rem;color:#e7ce82}
+@media(max-width:767px){
+  .level-marker small{font-size:.62rem;max-width:78px}
+  .building-level-badge{font-size:.54rem!important}
+}
