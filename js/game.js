@@ -36,6 +36,7 @@
       combatRules: clone(C.combatRules || {minimumAttackPopulation:10,nobleLoyaltyHitsPerCommand:1}),
       trainingRules: clone(C.trainingRules || {}),
       heroRules: clone(C.heroRules || {}),
+      respawnRules: clone(C.respawnRules || {playerMode:"optional",enemyMode:"disabled",enemyDelayMinutes:30}),
       aiProfiles: clone(C.aiProfiles || {}),
       ai: clone(C.ai || { actionIntervalSeconds: 25 }),
       periodicResourceBonus: clone(C.periodicResourceBonus || {enabled:true,intervalMinutes:20,amount:1000,players:true,enemies:true,barbarians:true,bonusVillages:true}),
@@ -68,6 +69,7 @@
       combatRules: { ...d.combatRules, ...(options.combatRules || {}) },
       trainingRules: { ...d.trainingRules, ...(options.trainingRules || {}) },
       heroRules: { ...d.heroRules, ...(options.heroRules || {}) },
+      respawnRules: { ...d.respawnRules, ...(options.respawnRules || {}) },
       aiProfiles: { ...d.aiProfiles, ...(options.aiProfiles || {}) },
       ai: { ...d.ai, ...(options.ai || {}), actionIntervalSeconds: Number(options.ai?.actionIntervalSeconds ?? options.enemyRules?.actionIntervalSeconds ?? d.ai.actionIntervalSeconds) || 25 },
       periodicResourceBonus: { ...d.periodicResourceBonus, ...(options.periodicResourceBonus || {}) },
@@ -166,6 +168,7 @@
       supportStationed: {},
       aiDiagnostics: {},
       defeatedEnemies: [],
+      eliminatedEnemies: {},
       achievements: {},
       market: { resources:{wood:600000,clay:600000,iron:600000}, lastUpdate:Date.now(), trades:0 },
       recurringAttacks: [],
@@ -196,6 +199,8 @@
     data.settings.minimumInitialEnemies = Math.max(10, Number(data.settings.minimumInitialEnemies) || 10);
     data.settings.enemyCount = Math.max(data.settings.minimumInitialEnemies, Number(data.settings.enemyCount) || 0);
     data.villages = data.villages || {};
+    data.eliminatedEnemies = data.eliminatedEnemies || {};
+    data.players = data.players || {};
     if (old < 6) {
       data.terrain = makeTerrain();
       const target = Math.round(C.mapWidth * C.mapHeight * C.villageDensity),
@@ -307,7 +312,7 @@
   }
   let state = migrate(S.load() || newState());
   // Um mundo novo ou migrado sempre nasce com o elenco mínimo de IAs já ativo.
-  setTimeout(() => { try { syncEnemies(); S.save(state); } catch (e) { console.error("Falha ao inicializar inimigos", e); } }, 0);
+  setTimeout(() => { try { normalizePaladins(); syncEnemies(); S.save(state); } catch (e) { console.error("Falha ao inicializar mundo", e); } }, 0);
   const active = () => state.villages[state.activeVillageId],
     owned = () => Object.values(state.villages).filter(isMine),
     villageAt = (x, y) => state.villages[id(Number(x), Number(y))];
@@ -500,6 +505,34 @@
     const same=v.trainQueue.filter(q=>(q.facility||trainingFacility(q.unit))===facility); const start=same.length?Math.max(now,same.at(-1).end||now):now;
     v.trainQueue.push({unit:k,facility,amount,trained:0,start,nextAt:start+duration,end:start+duration*amount,unitDuration:duration}); return true;
   }
+  function normalizePaladins() {
+    const max = Math.max(1, Number((state.settings.heroRules||C.heroRules||{}).maxPerOwner) || 1);
+    const groups = new Map();
+    Object.values(state.villages).forEach(v => {
+      const key = combatKey(v);
+      if (!key) return;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(v);
+    });
+    groups.forEach(villages => {
+      let remaining = max;
+      villages.sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)||String(a.id).localeCompare(String(b.id)));
+      villages.forEach(v => {
+        const have = Math.max(0, Number(v.units?.paladin)||0);
+        const keep = Math.min(have, remaining);
+        if (v.units) v.units.paladin = keep;
+        remaining -= keep;
+        (v.trainQueue||[]).forEach(q => {
+          if (q.unit !== "paladin") return;
+          const pending = Math.max(0,(q.amount||0)-(q.trained||0));
+          const allowed = Math.min(pending, remaining);
+          q.amount = (q.trained||0) + allowed;
+          remaining -= allowed;
+        });
+        v.trainQueue = (v.trainQueue||[]).filter(q => q.unit!=="paladin" || (q.amount||0)>(q.trained||0));
+      });
+    });
+  }
   function recruit(k, amount) {
     amount = Math.max(1, Math.floor(amount));
     const v = active(),
@@ -690,6 +723,8 @@
     const defenderOwnerBefore = target.owner || null;
     const defenderOwnerIdBefore = target.ownerId || null;
     const defenderAiIdBefore = target.aiId || (defenderOwnerBefore === "enemy" ? `ai-${target.id}` : null);
+    const defenderNameBefore = target.name;
+    const defenderProfileBefore = target.aiProfile;
     const attackerOwnerBefore = from.owner || null;
     const attackerOwnerIdBefore = from.ownerId || null;
     const attackerKey=combatKey(from), defenderKey=combatKey(target);
@@ -808,6 +843,8 @@
             if (!stillAlive) {
               state.defeatedEnemies ||= [];
               if (!state.defeatedEnemies.includes(defenderAiIdBefore)) state.defeatedEnemies.push(defenderAiIdBefore);
+              state.eliminatedEnemies ||= {};
+              state.eliminatedEnemies[defenderAiIdBefore] = {id:defenderAiIdBefore,name:defenderNameBefore||"Inimigo derrotado",profile:defenderProfileBefore||"economic",eliminatedAt:Date.now()};
             }
           }
           // Só avisa o usuário quando a aldeia conquistada era realmente dele.
@@ -1177,6 +1214,10 @@
     const n = Date.now(),
       changed = process(n, n - last);
     last = n;
+    if (Object.keys(state.eliminatedEnemies||{}).length && (state.settings.respawnRules||{}).enemyMode==="automatic" && n-(state.lastRespawnCheck||0)>=60000) {
+      state.lastRespawnCheck=n;
+      syncEnemies();
+    }
     if (changed) {
       // Mudanças automáticas do mundo não podem reconstruir a interface.
       S.save(state);
@@ -1191,12 +1232,11 @@
     }
   }, C.tickMs);
   function syncEnemies() {
-    const minimum = Math.max(10, Number(state.settings.minimumInitialEnemies ?? C.minimumInitialEnemies) || 10);
+    const minimum = Math.max(1, Number(state.settings.minimumInitialEnemies ?? C.minimumInitialEnemies) || 10);
     const desired = Math.max(minimum, Math.floor(Number(state.settings.enemyCount) || minimum));
-    state.settings.enemiesEnabled = true;
     state.settings.enemyCount = desired;
+    state.eliminatedEnemies ||= {};
 
-    // enemyCount representa IAs (identidades), não o total de aldeias que elas conquistaram.
     const enemyVillages = Object.values(state.villages).filter(v => v.owner === "enemy");
     const groups = new Map();
     enemyVillages.forEach(v => {
@@ -1204,15 +1244,40 @@
       if (!groups.has(v.aiId)) groups.set(v.aiId, []);
       groups.get(v.aiId).push(v);
     });
+
+    // Identidades eliminadas contam no elenco. Assim não nasce uma IA nova e forte
+    // apenas para manter artificialmente a quantidade configurada.
+    const knownIds = new Set([...groups.keys(), ...Object.keys(state.eliminatedEnemies)]);
     const free = Object.values(state.villages).filter(v => !v.owner && (!v.bonusType || v.bonusType === "none"));
-    while (groups.size < desired && free.length) {
+
+    // Só cria novas identidades quando o administrador aumenta explicitamente o elenco.
+    while (knownIds.size < desired && free.length) {
       const v = free.splice(rand(0, free.length - 1), 1)[0];
-      const idx = groups.size;
+      const idx = knownIds.size;
       v.owner = "enemy";
       v.name = `Inimigo ${idx + 1}`;
       v.aiProfile = ["offensive","defensive","economic","expansive"][idx % 4];
-      v.aiId = `ai-${v.id}`;
-      groups.set(v.aiId, [v]);
+      v.aiId = `ai-${Date.now()}-${idx}-${Math.random().toString(36).slice(2,7)}`;
+      v.buildings = {...Object.fromEntries(Object.keys(C.buildings).map(k=>[k,0])),...clone(state.settings.initialBuildingLevels)};
+      v.units = emptyUnits();
+      v.resources = clone(C.startingResources);
+      knownIds.add(v.aiId);
+      groups.set(v.aiId,[v]);
+    }
+
+    const rr = state.settings.respawnRules || {};
+    if (rr.enemyMode === "automatic") {
+      const delay = Math.max(0, Number(rr.enemyDelayMinutes)||0) * 60000;
+      Object.entries({...state.eliminatedEnemies}).forEach(([aid,meta]) => {
+        if (Date.now() - Number(meta.eliminatedAt||0) < delay || !free.length) return;
+        const v = free.splice(rand(0, free.length - 1), 1)[0];
+        v.owner = "enemy"; v.ownerId = null; v.aiId = aid;
+        v.aiProfile = meta.profile || "economic";
+        v.name = meta.name || "Inimigo renascido";
+        v.buildings = {...Object.fromEntries(Object.keys(C.buildings).map(k=>[k,0])),...clone(state.settings.initialBuildingLevels)};
+        v.units = emptyUnits(); v.resources = clone(C.startingResources); v.loyalty = C.baseLoyalty;
+        delete state.eliminatedEnemies[aid];
+      });
     }
     S.save(state);
   }
@@ -1321,6 +1386,20 @@
     saveRender();
     notify("Aldeia renomeada.");
   }
+  function playerPreferences(pid=currentPlayerId()) {
+    state.players ||= {};
+    const p = state.players[pid] ||= {id:pid};
+    p.preferences ||= {attackAlert:false,attackAlertStrength:true,mapCommandIndicators:true,compactNotifications:false};
+    return p.preferences;
+  }
+  function updatePlayerPreferences(patch={}) {
+    const p = playerPreferences();
+    Object.assign(p, patch||{});
+    S.save(state);
+    window.dispatchEvent(new Event("game-update"));
+    return p;
+  }
+
   function ensureCurrentPlayer() {
     const sess=session(); if(!sess) return null;
     const pid=currentPlayerId();
@@ -1346,8 +1425,10 @@
     S.save(state); return mine[0]||null;
   }
 
-  function restartCurrentPlayer() {
+  function restartCurrentPlayer(force=false) {
     const sess=session(); if(!sess || sess.role!=="player") return null;
+    const mode=(state.settings.respawnRules||{}).playerMode||"optional";
+    if(!force && mode==="disabled"){ notify("O renascimento está desativado neste mundo.","warning"); return null; }
     const pid=currentPlayerId();
     const occupied=new Set(Object.keys(state.villages)); let spots=[];
     for(let y=mapMinY();y<=mapMaxY();y++) for(let x=mapMinX();x<=mapMaxX();x++) if(!occupied.has(id(x,y))) spots.push([x,y]);
@@ -1397,12 +1478,12 @@
         v.trainQueue=[];
       }
     });
-    S.save(state); window.dispatchEvent(new Event("game-update")); notify(`Filas finalizadas em ${list.length} aldeia(s).`,"success");
+    normalizePaladins(); S.save(state); window.dispatchEvent(new Event("game-update")); notify(`Filas finalizadas em ${list.length} aldeia(s).`,"success");
   }
   function adminBulkOwner(ids,ownerId){ if(!isAdmin())return; (ids||[]).forEach(vid=>{const v=state.villages[vid];if(!v)return;if(ownerId==="barbarian"){v.owner=null;v.ownerId=null;}else if(String(ownerId).startsWith("ai:")){v.owner="enemy";v.ownerId=null;v.aiId=String(ownerId).slice(3); const src=Object.values(state.villages).find(x=>x.owner==="enemy"&&x.aiId===v.aiId); v.aiProfile=src?.aiProfile||v.aiProfile||"expansive";}else if(ownerId==="enemy"){v.owner="enemy";v.ownerId=null;v.aiId=v.aiId||`ai-${v.id}`;}else{v.owner="player";v.ownerId=ownerId;v.aiId=null;}});saveRender();notify("Proprietário atualizado em massa.");}
 
   window.Game = {
-    ensureCurrentPlayer, restartCurrentPlayer, isMine, currentPlayerId, achievementProgress, refreshAchievements, claimAchievement, buildingPopulation, buildAt, recruitAt, adminBulkUpdate, bulkBuild, bulkRecruitPreset, adminBulkFinish, adminBulkOwner,
+    ensureCurrentPlayer, restartCurrentPlayer, playerPreferences, updatePlayerPreferences, normalizePaladins, isMine, currentPlayerId, achievementProgress, refreshAchievements, claimAchievement, buildingPopulation, buildAt, recruitAt, adminBulkUpdate, bulkBuild, bulkRecruitPreset, adminBulkFinish, adminBulkOwner,
     get state() {
       return state;
     },
