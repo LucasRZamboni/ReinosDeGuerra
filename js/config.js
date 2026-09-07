@@ -5,7 +5,7 @@
  */
 window.GAME_CONFIG = {
   saveKey: "reinosDeGuerra_save_v1",
-  tickMs: 1500,
+  tickMs: 1000,
   autosaveMs: 20000,
   // PIN local para abrir ferramentas administrativas. Em multiplayer real, autenticação deve ficar no servidor.
   adminPin: "2468",
@@ -184,7 +184,7 @@ window.GAME_CONFIG = {
     conquerors: { label:"Conquistadores", productionMultiplier:10, buildTimeMultiplier:.1, recruitmentMultiplier:10, unitSpeedMultiplier:5, aiActionIntervalSeconds:10, marketRegenerationMultiplier:10, protectionMinutes:15, duration:"unlimited", objective:"enemyAll" },
     custom: { label:"Personalizado" }
   },
-  recurringAttacks: { enabled:true, minimumIntervalSeconds:60, maxDurationHours:168 },
+  recurringAttacks: { enabled:true, minimumIntervalSeconds:1, maxDurationHours:168 },
   bonusTypes: {
     none: { name: "Sem bônus", icon: "" },
     wood: { name: "Madeira", icon: "🪵" },
@@ -360,7 +360,7 @@ window.GAME_CONFIG = {
     hide: {
       name: "Esconderijo",
       icon: "◈",
-      description: "Protege parte dos recursos contra saques.",
+      description: "Protege recursos contra saques e espionagem. No nível 10, protege 2.000 de cada recurso.",
       baseCost: { wood: 50, clay: 60, iron: 50 },
       costFactor: { wood: 1.25, clay: 1.25, iron: 1.25 },
       baseTime: 5,

@@ -427,6 +427,14 @@
     return rewards;
   }
 
+
+  function hideCapacity(v){
+    const level=Math.max(0,Math.min(10,Number(v?.buildings?.hide)||0));
+    // Curva clássica crescente, fechando exatamente em 2.000 no nível 10.
+    const table=[0,150,200,267,356,474,632,843,1125,1500,2000];
+    return table[level]||0;
+  }
+
   function bonusValue(v, key) {
     return Number(state.settings.bonus[key] || 0);
   }
@@ -910,10 +918,14 @@
         0,
       );
       if(ast)ast.villagesPlundered=(ast.villagesPlundered||0)+1;
+      const hiddenPerResource=hideCapacity(target), attackerCap=cap(from);
       ["wood", "clay", "iron"].forEach((r) => {
-        loot[r] = Math.min(target.resources[r], Math.floor(capacity / 3));
+        const visibleResources=Math.max(0,Math.floor((target.resources[r]||0)-hiddenPerResource));
+        const freeStorage=Math.max(0,Math.floor(attackerCap-(from.resources[r]||0)));
+        loot[r] = Math.min(visibleResources, Math.floor(capacity / 3), freeStorage);
         target.resources[r] -= loot[r];
-        from.resources[r] = Math.min(cap(from), from.resources[r] + loot[r]); if(ast)ast.resourcesPlundered=(ast.resourcesPlundered||0)+loot[r];
+        from.resources[r] += loot[r];
+        if(ast)ast.resourcesPlundered=(ast.resourcesPlundered||0)+loot[r];
       });
       if ((attackBefore.ram || 0) > 0) {
         const before = target.buildings.wall || 0,
@@ -984,7 +996,8 @@
       const scoutAdvantage = Math.max(1, remainingScouts - defenderScouts);
       intel.level = scoutAdvantage >= 100 ? 3 : scoutAdvantage >= 25 ? 2 : 1;
       intel.reason = intel.level === 3 ? "Espionagem completa: recursos, edifícios e tropas revelados." : intel.level === 2 ? "Espionagem avançada: recursos e edifícios revelados." : "Espionagem básica: recursos revelados.";
-      intel.resources = clone(target.resources);
+      const hidden=hideCapacity(target);
+      intel.resources = Object.fromEntries(["wood","clay","iron"].map(r=>[r,Math.max(0,Math.floor((target.resources[r]||0)-hidden))]));
       if (intel.level >= 2) intel.buildings = clone(target.buildings);
       if (intel.level >= 3) intel.units = clone(target.units);
     }
@@ -1242,7 +1255,7 @@
     const interval=Math.max((C.recurringAttacks?.minimumIntervalSeconds||60)*1000,Number(o.intervalMs)||300000),duration=Number(o.durationMs)||0,now=Date.now();state.recurringAttacks.push({id:`rec-${now}-${Math.random()}`,ownerId:currentPlayerId(),origins,targets,units:clone(o.units||{}),intervalMs:interval,startAt:now,endAt:duration?now+duration:0,nextAt:now,status:"active",attempts:0,sent:0,failed:0,history:[]});S.save(state);return true;
   }
   function toggleRecurringAttack(id,action){const x=state.recurringAttacks.find(x=>x.id===id&&x.ownerId===currentPlayerId());if(!x)return;if(action==="cancel")x.status="cancelled";else if(action==="pause")x.status="paused";else if(action==="resume"){x.status="active";x.nextAt=Date.now();}S.save(state);}
-  function processRecurring(now){(state.recurringAttacks||[]).forEach(x=>{if(x.status!=="active"||now<x.nextAt)return;if(x.endAt&&now>x.endAt){x.status="finished";return;}x.attempts++;let cycleSent=0;x.origins.forEach(oid=>{const from=state.villages[oid];if(!from||!isMine(from))return;x.targets.forEach(tid=>{const enough=Object.entries(x.units).every(([k,q])=>(from.units[k]||0)>=q);if(!enough){x.failed++;x.history.unshift({time:now,origin:oid,target:tid,status:"failed",reason:"Tropas insuficientes"});return;}if(scheduleAttackFrom(oid,tid,x.units,now+1000,"departure")){x.sent++;cycleSent++;x.history.unshift({time:now,origin:oid,target:tid,status:"sent"});}else{x.failed++;x.history.unshift({time:now,origin:oid,target:tid,status:"failed",reason:"Comando não pôde ser enviado"});}});});x.nextAt+=x.intervalMs;if(x.endAt&&x.nextAt>x.endAt)x.status="finished";x.history=x.history.slice(0,Math.max(10,Number(state.settings?.performance?.recurringHistoryLimit)||30));});}
+  function processRecurring(now){(state.recurringAttacks||[]).forEach(x=>{if(x.status!=="active"||now<x.nextAt)return;if(x.endAt&&now>x.endAt){x.status="finished";return;}x.attempts++;x.origins.forEach(oid=>{const from=state.villages[oid];if(!from||!isMine(from))return;x.targets.forEach(tid=>{const enough=Object.entries(x.units).every(([k,q])=>(from.units[k]||0)>=q);if(!enough){x.failed++;x.history.unshift({time:now,origin:oid,target:tid,status:"failed",reason:"Tropas insuficientes"});return;}if(scheduleAttackFrom(oid,tid,x.units,now+Math.max(250,Math.min(1000,x.intervalMs)),"departure")){x.sent++;x.history.unshift({time:now,origin:oid,target:tid,status:"sent"});}else{x.failed++;x.history.unshift({time:now,origin:oid,target:tid,status:"failed",reason:"Comando não pôde ser enviado"});}});});x.nextAt=Math.max(x.nextAt+x.intervalMs,now+x.intervalMs);if(x.endAt&&x.nextAt>x.endAt)x.status="finished";x.history=x.history.slice(0,Math.max(10,Number(state.settings?.performance?.recurringHistoryLimit)||30));});}
   function process(now, dt) {
     let changed = false;
     if (!state.paused) {
@@ -1632,7 +1645,7 @@
   function adminBulkOwner(ids,ownerId){ if(!isAdmin())return; (ids||[]).forEach(vid=>{const v=state.villages[vid];if(!v)return;if(ownerId==="barbarian"){v.owner=null;v.ownerId=null;}else if(String(ownerId).startsWith("ai:")){v.owner="enemy";v.ownerId=null;v.aiId=String(ownerId).slice(3); const src=Object.values(state.villages).find(x=>x.owner==="enemy"&&x.aiId===v.aiId); v.aiProfile=src?.aiProfile||v.aiProfile||"expansive";}else if(ownerId==="enemy"){v.owner="enemy";v.ownerId=null;v.aiId=v.aiId||`ai-${v.id}`;}else{v.owner="player";v.ownerId=ownerId;v.aiId=null;}});saveRender();notify("Proprietário atualizado em massa.");}
 
   window.Game = {
-    ensureCurrentPlayer, restartCurrentPlayer, playerPreferences, updatePlayerPreferences, villageStageInfo, checkVillageStageRewards, VILLAGE_STAGES, villageGroups, setVillageGroup, deleteRecurringAttack, clearFinishedRecurring, normalizePaladins, isMine, currentPlayerId, achievementProgress, refreshAchievements, claimAchievement, buildingPopulation, buildAt, recruitAt, adminBulkUpdate, bulkBuild, bulkRecruitPreset, adminBulkFinish, adminBulkOwner,
+    ensureCurrentPlayer, restartCurrentPlayer, playerPreferences, updatePlayerPreferences, villageStageInfo, checkVillageStageRewards, VILLAGE_STAGES, hideCapacity, villageGroups, setVillageGroup, deleteRecurringAttack, clearFinishedRecurring, normalizePaladins, isMine, currentPlayerId, achievementProgress, refreshAchievements, claimAchievement, buildingPopulation, buildAt, recruitAt, adminBulkUpdate, bulkBuild, bulkRecruitPreset, adminBulkFinish, adminBulkOwner,
     get state() {
       return state;
     },

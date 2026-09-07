@@ -381,3 +381,11 @@ Os antigos `villageMilestones` foram incorporados a `GAME_CONFIG.achievements`. 
 - Geração inicial e ciclos futuros podem usar apenas terreno livre (grama), evitando floresta, lago e morro.
 - Admin pode alternar distribuição Centro → bordas/Aleatória e preservação do terreno.
 - Saves atuais não têm aldeias existentes reposicionadas; a nova distribuição vale para novos mundos e novos nascimentos.
+
+## Rodada: esconderijo, comandos e treinamento
+- Esconderijo aplicado ao saque e à espionagem; nível 10 protege 2.000 de cada recurso.
+- Contadores separados em Comandos: ataques enviados, voltando, chegando, apoios enviados e voltando.
+- Total de unidades em treinamento exibido em Comandos, Exército e Visão Geral.
+- Painel de tropas disponíveis junto às configurações de envio, atualizado conforme as origens selecionadas.
+- Ataques recorrentes aceitam intervalo em segundos ou minutos; duração permanece em minutos.
+- Intervalo mínimo técnico reduzido para 1 segundo e tick do mundo ajustado para 1 segundo.
