@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Jogo solo de estratégia medieval com aldeias e conquistas.">
   <title>Reinos De Guerra</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=20260906-commands-hideout">
+  <link href="vendor/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=20260918-review">
 </head>
 <body>
   <div id="loginScreen" class="auth-screen">
@@ -19,7 +19,7 @@
       <label class="form-label">Senha</label><input name="password" type="password" class="form-control mb-3" autocomplete="current-password" required>
       <button class="btn btn-warning w-100">Entrar</button>
       <button id="showRegisterBtn" type="button" class="btn btn-outline-light w-100 mt-2">Criar conta</button>
-      <div class="small text-secondary mt-3">Jogadores compartilham o mesmo mundo. O acesso administrativo é separado.</div>
+      <div class="small text-secondary mt-3">Contas neste navegador compartilham o mundo local. O progresso é salvo neste dispositivo.</div>
     </form>
     <form id="registerForm" class="auth-card panel p-4 d-none">
       <div class="brand auth-brand"><span class="brand-mark">♜</span> Reinos De Guerra</div>
@@ -38,6 +38,7 @@
       <div id="resourceBar" class="resource-bar"></div>
       <div class="d-flex align-items-center gap-2">
         <span class="small text-uppercase">Ritmo</span>
+        <span id="saveStatus" class="small text-secondary" role="status"></span>
         <span id="speedDisplay" class="badge text-bg-secondary">1×</span>
         <button id="gameHubBtn" class="btn btn-sm btn-outline-light game-hub-button" title="Central do Jogo" aria-label="Abrir Central do Jogo">⚙</button>
         <span id="sessionRole" class="badge text-bg-dark"></span>
@@ -142,16 +143,17 @@
 
   <div class="modal fade" id="productionModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content panel"><div class="modal-header border-secondary"><div><div class="eyebrow">Economia da aldeia</div><h2 class="modal-title h5" id="productionModalTitle">Produção</h2></div><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div><div class="modal-body" id="productionModalBody"></div></div></div></div>
   <input id="importInput" type="file" accept="application/json" hidden>
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="js/config.js?v=20260906-commands-hideout"></script>
-  <script src="js/storage.js?v=20260906-commands-hideout"></script>
-  <script src="js/auth.js?v=20260906-commands-hideout"></script>
-  <script src="js/game.js?v=20260906-commands-hideout"></script>
-  <script src="js/ui.js?v=20260906-commands-hideout"></script>
+
 
   <div class="modal fade" id="playerProfileModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content panel"><div class="modal-header border-secondary"><div><div class="eyebrow">Perfil público</div><h2 class="modal-title h5" id="playerProfileTitle">Jogador</h2></div><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div><div class="modal-body" id="playerProfileBody"></div></div></div></div>
   <div class="modal fade" id="defeatModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content panel"><div class="modal-header border-secondary"><div><div class="eyebrow">Fim do reino</div><h2 class="modal-title h5">Você perdeu todas as aldeias</h2></div></div><div class="modal-body"><p>Seu reino foi derrotado neste mundo. Você pode recomeçar com uma nova aldeia inicial no mesmo mundo ou apagar este mundo e começar novamente do zero.</p><p class="small text-secondary mb-0">Recomeçar no mesmo mundo mantém as aldeias, IAs, rankings e acontecimentos atuais.</p></div><div class="modal-footer border-secondary"><button type="button" id="defeatRestartSame" class="btn btn-warning">Reiniciar neste mundo</button><button type="button" id="defeatNewWorld" class="btn btn-outline-danger">Iniciar novo mundo</button></div></div></div></div>
   <div class="modal fade" id="confirmModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content panel"><div class="modal-header border-secondary"><h2 class="modal-title h5">Confirmação</h2><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div><div class="modal-body" id="confirmModalText"></div><div class="modal-footer border-secondary"><button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Cancelar</button><button type="button" id="confirmModalOk" class="btn btn-warning">Confirmar</button></div></div></div></div>
 <div class="modal fade" id="infoModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><div class="modal-content panel"><div class="modal-header"><h5 id="infoModalTitle" class="modal-title">Informação</h5><button class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div><div id="infoModalBody" class="modal-body"></div><div class="modal-footer"><button class="btn btn-warning" data-bs-dismiss="modal">Entendi</button></div></div></div></div>
+  <script src="vendor/bootstrap.bundle.min.js"></script>
+  <script src="js/config.js?v=20260918-review"></script>
+  <script src="js/storage.js?v=20260918-review"></script>
+  <script src="js/auth.js?v=20260918-review"></script>
+  <script src="js/game.js?v=20260918-review"></script>
+  <script src="js/ui.js?v=20260918-review"></script>
 </body>
 </html>

@@ -178,7 +178,8 @@
     const rules=generationRules(settings), selected=[], occupied=Object.values(villages).map(v=>({x:v.x,y:v.y}));
     const maxMapRadius=Math.hypot((mapMaxX()-mapMinX()+1)/2,(mapMaxY()-mapMinY()+1)/2)+2;
     let radius=rules.distribution==="random"?Infinity:(initial?rules.initialRadius:maxMapRadius);
-    const fits=(cell)=>occupied.every(p=>Math.hypot(cell.x-p.x,cell.y-p.y)>=rules.minVillageDistance) && selected.every(p=>Math.hypot(cell.x-p.x,cell.y-p.y)>=rules.minVillageDistance);
+    const distanceSquared=rules.minVillageDistance**2;
+    const fits=cell=>occupied.every(p=>(cell.x-p.x)**2+(cell.y-p.y)**2>=distanceSquared);
     let safety=0;
     while(selected.length<count && safety++<100){
       const candidates=villageCandidateCells(terrain,{...villages,...Object.fromEntries(selected.map(c=>[id(c.x,c.y),c]))},settings,radius);
@@ -217,6 +218,7 @@
       createdAt: Date.now(),
       lastUpdate: Date.now(),
       lastAiAction: Date.now(),
+      lastPeriodicResourceBonus: Date.now(),
       speed: C.defaultSpeed,
       paused: false,
       won: false,
@@ -238,6 +240,8 @@
           id: `info-${Date.now()}`,
           time: Date.now(),
           type: "info",
+          playerId: currentPlayerId(),
+          recipients: [currentPlayerId()],
           title: "Um novo domínio",
           text: "Sua aldeia está pronta para crescer.",
         },
@@ -452,7 +456,7 @@
     },0);
   }
   const population = (v) =>
-    buildingPopulation(v) + Object.entries(v.units).reduce(
+    buildingPopulation(v) + awayPopulation(v) + Object.entries(v.units).reduce(
       (n, [k, q]) => n + (C.units[k] ? q * C.units[k].population : 0),
       0,
     ) +
@@ -461,6 +465,11 @@
         n + (C.units[q.unit] ? Math.max(0,(q.amount||0)-(q.trained||0)) * C.units[q.unit].population : 0),
       0,
     );
+  function awayPopulation(v) {
+    return [...state.movements, ...Object.values(state.supportStationed || {})]
+      .filter(m => m.fromId === v.id)
+      .reduce((n,m) => n + unitLossScore(m.units), 0);
+  }
   function prod(v, r) {
     const lv =
         v.buildings[
@@ -559,7 +568,9 @@
     canPay = (v, c) => Object.entries(c).every(([r, n]) => v.resources[r] >= n),
     pay = (v, c) =>
       Object.entries(c).forEach(([r, n]) => (v.resources[r] -= n));
+  let simulating=false;
   function notify(msg, type = "success") {
+    if(simulating)return;
     window.dispatchEvent(
       new CustomEvent("game-notify", { detail: { msg, type } }),
     );
@@ -613,7 +624,7 @@
     return "barracks";
   }
   function enqueueRecruit(v,k,amount,now=Date.now()) {
-    const u=C.units[k]; amount=Math.max(1,Math.floor(Number(amount)||0)); if(!v||!u||!meets(v,u.requires||{})) return false;
+    const u=C.units[k]; amount=Math.max(1,Math.floor(Number(amount)||0)); if(!v||!u||!Number.isFinite(amount)||!meets(v,u.requires||{})) return false;
     if(population(v)+u.population*amount>popCap(v)) return false;
     const each=unitCost(k,v), cost=Object.fromEntries(Object.entries(each).map(([r,n])=>[r,n*amount])); if(!canPay(v,cost)) return false;
     pay(v,cost); const duration=(unitTrainTime(k,v)*1000)/state.speed, facility=trainingFacility(k);
@@ -630,7 +641,9 @@
       groups.get(key).push(v);
     });
     groups.forEach(villages => {
-      let remaining = max;
+      const villageIds=new Set(villages.map(v=>v.id));
+      const away=[...state.movements,...Object.values(state.supportStationed||{})].filter(m=>villageIds.has(m.fromId)).reduce((n,m)=>n+(m.units?.paladin||0),0);
+      let remaining = Math.max(0,max-away);
       villages.sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)||String(a.id).localeCompare(String(b.id)));
       villages.forEach(v => {
         const have = Math.max(0, Number(v.units?.paladin)||0);
@@ -649,7 +662,8 @@
     });
   }
   function recruit(k, amount) {
-    amount = Math.max(1, Math.floor(amount));
+    if(!Number.isFinite(Number(amount)) || Number(amount)<1) return notify("Informe uma quantidade válida.","warning");
+    amount = Math.floor(Number(amount));
     const v = active(),
       u = C.units[k];
     if (!meets(v, u.requires))
@@ -660,14 +674,14 @@
     if (k === "paladin") {
       const hr=state.settings.heroRules||C.heroRules||{}; if ((!v.owner && hr.allowBarbarians!==true) || (v.bonusType!=="none" && hr.allowBonusVillages!==true)) return notify("Bárbaras e aldeias bônus não podem criar Herói.", "warning");
       const key=combatKey(v), total=Object.values(state.villages).filter(x=>combatKey(x)===key).reduce((n,x)=>n+(x.units.paladin||0)+(x.trainQueue||[]).filter(q=>q.unit==="paladin").reduce((a,q)=>a+Math.max(0,(q.amount||0)-(q.trained||0)),0),0);
-      if (total + amount > Math.max(1,Number(hr.maxPerOwner)||1)) return notify(`É permitido apenas ${Math.max(1,Number(hr.maxPerOwner)||1)} Herói por jogador.`, "warning");
+      if (total + Object.values(state.villages).filter(x=>combatKey(x)===key).reduce((n,x)=>n+[...state.movements,...Object.values(state.supportStationed||{})].filter(m=>m.fromId===x.id).reduce((a,m)=>a+(m.units?.paladin||0),0),0) + amount > Math.max(1,Number(hr.maxPerOwner)||1)) return notify(`É permitido apenas ${Math.max(1,Number(hr.maxPerOwner)||1)} Herói por jogador.`, "warning");
     }
     if (
       u.limit &&
       (v.units[k] || 0) +
         v.trainQueue
           .filter((q) => q.unit === k)
-          .reduce((n, q) => n + q.amount, 0) +
+          .reduce((n, q) => n + Math.max(0,q.amount-(q.trained||0)), 0) +
         amount >
         u.limit
     )
@@ -702,8 +716,8 @@
     });
     return total * (kind === "defense" ? 1 + wall * 0.05 : 1);
   }
-  function travelInfo(targetId, units) {
-    const from = active(),
+  function travelInfo(targetId, units, origin = active()) {
+    const from = origin,
       target = state.villages[targetId];
     if (!from || !target) return null;
     const sent = Object.entries(units || {}).filter(
@@ -745,7 +759,7 @@
   }
   function launch(from, target, units, catapultTarget = null) {
     Object.entries(units).forEach(([k, n]) => (from.units[k] -= n));
-    const info = travelInfo(target.id, units),
+    const info = travelInfo(target.id, units, from),
       ms = info.seconds * 1000;
     state.movements.push({
       id: `m-${Date.now()}-${Math.random()}`,
@@ -758,6 +772,13 @@
       end: Date.now() + ms,
     });
   }
+  function attackError(from, target, units, ownerId=currentPlayerId()) {
+    if (!from || from.ownerId!==ownerId || !target || (target.owner==="player"&&target.ownerId===ownerId)) return "Origem ou destino inválido.";
+    if (state.settings.beginnerProtection?.enabled !== false && target.protectionUntil > Date.now()) return "Esta aldeia está sob proteção inicial.";
+    const minimum = Math.max(1, Number(state.settings.minimumAttackPopulation) || 10);
+    if (unitLossScore(units) < minimum) return `O ataque exige pelo menos ${minimum} de população militar.`;
+    return null;
+  }
   function scheduleAttack(targetId, units, whenMs, mode = "arrival", catapultTarget = null) {
     const from=active(), target=state.villages[targetId];
     if(!from||!target) return notify("Origem ou destino inválido.","warning");
@@ -765,6 +786,7 @@
     const sent=Object.fromEntries(Object.entries(units).filter(([k])=>C.units[k]).map(([k,n])=>[k,Math.max(0,Math.floor(Number(n)||0))]).filter(([,n])=>n));
     if(!Object.keys(sent).length) return notify("Escolha pelo menos uma unidade.","warning");
     if(Object.entries(sent).some(([k,n])=>(from.units[k]||0)<n)) return notify("Quantidade inválida ou já reservada.","danger");
+    const blocked=attackError(from,target,sent); if(blocked) return notify(blocked,"warning");
     const info=travelInfo(target.id,sent), travelMs=info.seconds*1000, chosen=Number(whenMs)||0;
     const departAt=mode==="departure"?chosen:chosen-travelMs, arriveAt=mode==="departure"?chosen+travelMs:chosen;
     if(departAt<=Date.now()+500) return notify("O horário escolhido não permite preparar este ataque.","warning");
@@ -772,17 +794,19 @@
     state.movements.push({id:`scheduled-${Date.now()}-${Math.random()}`,kind:"scheduledAttack",fromId:from.id,targetId:target.id,units:sent,catapultTarget,outbound:true,scheduled:true,departAt,end:arriveAt,travelMs});
     saveRender(); notify("Ataque agendado. As tropas ficaram reservadas.","success"); return true;
   }
-  function scheduleAttackFrom(fromId,targetId,units,whenMs,mode="arrival",catapultTarget=null){
-    const from=state.villages[fromId], target=state.villages[targetId]; if(!from||!isMine(from)||!target||isMine(target))return false;
+  function scheduleAttackForOwner(fromId,targetId,units,whenMs,mode="arrival",catapultTarget=null,ownerId=currentPlayerId()){
+    const from=state.villages[fromId], target=state.villages[targetId]; if(!from||from.ownerId!==ownerId||!target||(target.owner==="player"&&target.ownerId===ownerId))return false;
     const sent=Object.fromEntries(Object.entries(units).filter(([k])=>C.units[k]).map(([k,n])=>[k,Math.max(0,Math.floor(Number(n)||0))]).filter(([,n])=>n));
     if(!Object.keys(sent).length||Object.entries(sent).some(([k,n])=>(from.units[k]||0)<n))return false;
-    const dist=Math.hypot(target.x-from.x,target.y-from.y), slow=Math.max(...Object.keys(sent).map(k=>C.units[k]?.speed||1)), travelMs=Math.max(1000,dist*state.settings.travelSecondsPerTile*slow*1000/state.speed);
+    if(attackError(from,target,sent,ownerId)) return false;
+    const travelMs=travelInfo(targetId,sent,from).seconds*1000;
     const chosen=Number(whenMs)||0,departAt=mode==="departure"?chosen:chosen-travelMs,arriveAt=mode==="departure"?chosen+travelMs:chosen;if(departAt<=Date.now()+500)return false;
     Object.entries(sent).forEach(([k,n])=>from.units[k]-=n);state.movements.push({id:`scheduled-${Date.now()}-${Math.random()}`,kind:"scheduledAttack",fromId,targetId,units:sent,catapultTarget,outbound:true,scheduled:true,departAt,end:arriveAt,travelMs});return true;
   }
+  function scheduleAttackFrom(...args){const ok=scheduleAttackForOwner(...args);if(ok)saveRender();return ok;}
   function cancelScheduled(id){
     const i=state.movements.findIndex(m=>m.id===id&&m.scheduled); if(i<0)return;
-    const m=state.movements[i], from=state.villages[m.fromId];
+    const m=state.movements[i], from=state.villages[m.fromId]; if(!isAdmin()&&!isMine(from))return;
     if(from) Object.entries(m.units||{}).forEach(([k,n])=>from.units[k]=(from.units[k]||0)+n);
     state.movements.splice(i,1); saveRender(); notify("Agendamento cancelado; tropas liberadas.");
   }
@@ -806,9 +830,10 @@
       return notify("Escolha pelo menos uma unidade.", "warning");
     if (Object.entries(sent).some(([k, n]) => from.units[k] < n))
       return notify("Quantidade inválida.", "danger");
+    const blocked=attackError(from,target,sent); if(blocked) return notify(blocked,"warning");
     launch(from, target, sent, catapultTarget);
     saveRender();
-    notify("As tropas iniciaram a marcha.");
+    notify("As tropas iniciaram a marcha."); return true;
   }
   function losses(before, after) {
     return Object.fromEntries(
@@ -822,12 +847,12 @@
   function combatStat(key){ if(!key) return null; return state.combatStats[key]||(state.combatStats[key]={attackerPoints:0,defenderPoints:0,supporterPoints:0,conquests:0,enemyPopulationDefeated:0,villagesPlundered:0,resourcesPlundered:0,uniqueEnemiesAttacked:[],catapultLevelsDestroyed:0,wallLevelsDestroyed:0,noblesDefeated:0,armiesDestroyed:0,buildingLevelsBuilt:0,unitsRecruited:0,marketTrades:0}); }
   function unitLossScore(units){ return Object.entries(units||{}).reduce((n,[k,q])=>n+q*(C.units[k]?.population||1),0); }
   function sendSupport(targetId, units) {
-    const from=active(), target=state.villages[targetId]; if(!from||!target) return notify("Destino inválido.","warning");
+    const from=active(), target=state.villages[targetId]; if(!from||!isMine(from)||!target||from.id===target.id) return notify("Destino inválido.","warning");
     const clean={}; let any=false; for(const k of Object.keys(C.units)){const n=Math.max(0,Math.floor(Number(units?.[k])||0)); if(n>(from.units[k]||0)) return notify("Tropas insuficientes.","warning"); clean[k]=n; any ||= n>0;}
     if(!any) return notify("Selecione tropas para o apoio.","warning"); Object.entries(clean).forEach(([k,n])=>from.units[k]-=n);
-    const info=travelInfo(targetId,clean), ms=info.seconds*1000; state.movements.push({id:`support-${Date.now()}-${Math.random()}`,kind:"support",fromId:from.id,targetId:target.id,units:clean,outbound:true,travelMs:ms,end:Date.now()+ms}); saveRender();
+    const info=travelInfo(targetId,clean), ms=info.seconds*1000; state.movements.push({id:`support-${Date.now()}-${Math.random()}`,kind:"support",fromId:from.id,targetId:target.id,units:clean,outbound:true,travelMs:ms,end:Date.now()+ms}); saveRender(); return true;
   }
-  function withdrawSupport(supportId){ const x=state.supportStationed[supportId]; if(!x) return; const target=state.villages[x.targetId], home=state.villages[x.fromId]; if(!target||!home) return; delete state.supportStationed[supportId]; const ms=Math.max(1000,Math.hypot(target.x-home.x,target.y-home.y)*state.settings.travelSecondsPerTile*1000/state.speed); state.movements.push({id:`support-return-${Date.now()}-${Math.random()}`,kind:"supportReturn",fromId:x.fromId,targetId:x.targetId,units:x.units,outbound:false,travelMs:ms,end:Date.now()+ms}); saveRender(); }
+  function withdrawSupport(supportId){ const x=state.supportStationed[supportId]; if(!x) return; const target=state.villages[x.targetId], home=state.villages[x.fromId]; if(!target||!home||(!isAdmin()&&!isMine(home))) return; delete state.supportStationed[supportId]; const ms=travelInfo(target.id,x.units,home).seconds*1000; state.movements.push({id:`support-return-${Date.now()}-${Math.random()}`,kind:"supportReturn",fromId:x.fromId,targetId:x.targetId,units:x.units,outbound:false,travelMs:ms,end:Date.now()+ms}); saveRender(); }
   function arriveSupport(m){ state.supportStationed[m.id]={id:m.id,fromId:m.fromId,targetId:m.targetId,units:clone(m.units),arrivedAt:Date.now()}; }
   function resolve(m) {
     const from = state.villages[m.fromId],
@@ -1035,7 +1060,7 @@
       siege,
       intel,
     });
-    if (playerInvolved) state.reports = state.reports.slice(0, 200);
+    if (playerInvolved) state.reports = state.reports.slice(0, Math.max(100,Number(state.settings.performance?.reportLimit)||750));
     if (Object.values(survivors).some(Boolean) && from.owner)
       state.movements.push({
         ...m,
@@ -1111,7 +1136,7 @@
         const conquestAllowed=er.canConquer!==false && enemyVillageCount < (Number(er.maxVillagesPerEnemy)||12) && (target.owner==="player" ? er.canConquerPlayers!==false : target.owner==="enemy" ? er.canConquerOtherEnemies===true : er.canConquerBarbarians!==false);
         if(conquestAllowed && !(from.units.noble||0)){ const drec=state.aiDiagnostics[from.aiId||from.id]||(state.aiDiagnostics[from.aiId||from.id]={}); drec.status="Preparando Nobre"; }
         if(conquestAllowed && (from.units.noble||0)>0 && (profile==="expansive" || profile==="offensive")){ units.noble=1; from.units.noble-=1; any=true; }
-        if (any) { const dist=Math.hypot(target.x-from.x,target.y-from.y), travelMs=Math.max(1000, dist*state.settings.travelSecondsPerTile*1000/state.speed); state.movements.push({id:`enemy-${Date.now()}-${Math.random()}`,fromId:from.id,targetId:target.id,units,outbound:true,start:now,end:now+travelMs,travelMs,catapultTarget:null}); if(isMine(target)) notify(`⚔ Ataque inimigo a caminho de ${target.name} (${target.x}|${target.y}).`,"danger"); }
+        if (any) { const travelMs=travelInfo(target.id,units,from).seconds*1000; state.movements.push({id:`enemy-${Date.now()}-${Math.random()}`,fromId:from.id,targetId:target.id,units,outbound:true,start:now,end:now+travelMs,travelMs,catapultTarget:null}); if(isMine(target)) notify(`⚔ Ataque inimigo a caminho de ${target.name} (${target.x}|${target.y}).`,"danger"); }
       });
     }
     state.lastAiAction = now;
@@ -1171,6 +1196,7 @@
     });
   }
   function canApplyReward(v,reward){
+    if(reward.storagePercent && ["wood","clay","iron"].some(r=>v.resources[r]+cap(v)*reward.storagePercent/100>cap(v)))return false;
     const troops=reward.troops||{}; const nobleQty=(reward.noble||0)+(troops.noble||0); if(nobleQty>0 && (v.buildings.academy||0)<1)return false;
     const pop=Object.entries(troops).reduce((n,[k,q])=>n+(C.units[k]?.population||0)*q,0)+(reward.noble||0)*(C.units.noble?.population||0);
     return population(v)+pop<=popCap(v);
@@ -1194,6 +1220,7 @@
     Object.assign(entry,{unlocked:true,claimed:true,pending:false,claimedAt:Date.now()});saveRender();return true;
   }
   function checkVictory() {
+    if(simulating)return;
     const vr=state.settings.victoryRules||{}, o = vr.enabled===false ? {type:"none",target:Infinity,name:"Sem condição de vitória"} : (vr.type ? {type:vr.type,target:Number(vr.target)||10,name:`${vr.type}: ${vr.target}`} : (C.objectives[state.settings.objective] || C.objectives.villages10)),
       count = owned().length,
       total = Object.keys(state.villages).length,
@@ -1233,31 +1260,47 @@
   function adminSpawnNow(){ if(!isAdmin()) return; const cfg=state.settings.barbarianSpawn||{}; state.lastBarbarianSpawn=Date.now()-(Math.max(1,Number(cfg.intervalMinutes)||30)*60000)-1; const before=state.spawnedBarbarians||0; spawnBarbarians(Date.now()); S.save(state); notify((state.spawnedBarbarians||0)>before?"Ciclo de nascimento executado.":"Nenhuma aldeia foi gerada: verifique limite, ativação e espaços vazios.",(state.spawnedBarbarians||0)>before?"success":"warning"); saveRender(); }
 
   function simulateCombat(attUnits,defUnits,wall=0,catapultTarget=null){
-    const original=state;try{state=clone(original);const a=makeVillage(mapMinX(),mapMinY(),"player",state.settings),d=makeVillage(mapMinX()+1,mapMinY(),"enemy",state.settings);a.id="__sim_a";d.id="__sim_d";a.ownerId=currentPlayerId();a.units={...emptyUnits(),...clone(attUnits||{})};d.units={...emptyUnits(),...clone(defUnits||{})};d.buildings.wall=Math.max(0,Math.min(20,Number(wall)||0));d.resources={wood:0,clay:0,iron:0};state.villages[a.id]=a;state.villages[d.id]=d;const before=state.reports.length;resolve({id:"__sim",kind:"attack",fromId:a.id,targetId:d.id,units:clone(a.units),catapultTarget,outbound:true,start:Date.now(),end:Date.now()});const report=state.reports[0];return report&&state.reports.length>before?clone(report):null;}finally{state=original;}
+    const original=state;try{simulating=true;state=clone(original);const a=makeVillage(mapMinX(),mapMinY(),"player",state.settings),d=makeVillage(mapMinX()+1,mapMinY(),"enemy",state.settings);a.id="__sim_a";d.id="__sim_d";a.ownerId=currentPlayerId();a.units={...emptyUnits(),...clone(attUnits||{})};d.units={...emptyUnits(),...clone(defUnits||{})};d.buildings.wall=Math.max(0,Math.min(20,Number(wall)||0));d.resources={wood:0,clay:0,iron:0};state.villages[a.id]=a;state.villages[d.id]=d;const before=state.reports[0];resolve({id:"__sim",kind:"attack",fromId:a.id,targetId:d.id,units:clone(a.units),catapultTarget,outbound:true,start:Date.now(),end:Date.now()});const report=state.reports[0];return report&&report!==before?clone(report):null;}finally{state=original;simulating=false;}
   }
   function updateMarket(now=Date.now()){
+    if(state.paused)return;
     const cfg=state.settings.marketServer||C.marketServer||{}; if(cfg.enabled===false)return;
     state.market=state.market||{resources:{wood:0,clay:0,iron:0},lastUpdate:now,trades:0};
     const elapsed=Math.max(0,(now-(state.market.lastUpdate||now))/1000); if(!elapsed)return;
     const villages=Object.values(state.villages), avg={wood:0,clay:0,iron:0};
     ["wood","clay","iron"].forEach(r=>{avg[r]=villages.length?villages.reduce((n,v)=>n+prod(v,r),0)/villages.length:0;});
-    const max=Number(cfg.capacityPerResource)||600000,m=Number(cfg.regenerationMultiplier)||1;
+    const max=Number(cfg.capacityPerResource)||600000,m=Math.max(0,Number(cfg.regenerationMultiplier??1));
     ["wood","clay","iron"].forEach(r=>state.market.resources[r]=Math.min(max,(state.market.resources[r]||0)+avg[r]/60*elapsed*m)); state.market.lastUpdate=now;
   }
   function marketExchange(give,take,amount){
+    if(state.settings.marketServer?.enabled===false)return {ok:false,msg:"O Mercado está desativado."};
     updateMarket(); const v=active(),cfg=state.settings.marketServer||C.marketServer||{},n=Math.floor(Number(amount)||0),rate=Number(cfg.exchangeRate)||1,receive=Math.floor(n*rate);
     if(!v||!["wood","clay","iron"].includes(give)||!["wood","clay","iron"].includes(take)||give===take||n<=0)return {ok:false,msg:"Informe uma troca válida."};
     if((v.resources[give]||0)<n)return {ok:false,msg:"Recursos insuficientes na aldeia."}; if((state.market.resources[take]||0)<receive)return {ok:false,msg:"O Mercado não possui estoque suficiente."}; if((v.resources[take]||0)+receive>cap(v))return {ok:false,msg:"O Armazém não possui espaço para receber a troca."};
     v.resources[give]-=n;v.resources[take]+=receive;state.market.resources[give]=Math.min(Number(cfg.capacityPerResource)||600000,(state.market.resources[give]||0)+n);state.market.resources[take]-=receive;state.market.trades=(state.market.trades||0)+1;const st=combatStat(currentPlayerId());if(st)st.marketTrades=(st.marketTrades||0)+1;S.save(state);refreshAchievements();return {ok:true,receive};
   }
   function createRecurringAttack(o){
-    const origins=(o.origins||[]).filter(id=>isMine(state.villages[id])),targets=(o.targets||[]).filter(id=>state.villages[id]&&!isMine(state.villages[id])); if(!origins.length||!targets.length)return false;
-    const interval=Math.max((C.recurringAttacks?.minimumIntervalSeconds||60)*1000,Number(o.intervalMs)||300000),duration=Number(o.durationMs)||0,now=Date.now();state.recurringAttacks.push({id:`rec-${now}-${Math.random()}`,ownerId:currentPlayerId(),origins,targets,units:clone(o.units||{}),intervalMs:interval,startAt:now,endAt:duration?now+duration:0,nextAt:now,status:"active",attempts:0,sent:0,failed:0,history:[]});S.save(state);return true;
+    const origins=[...new Set(o.origins||[])].filter(id=>isMine(state.villages[id])),targets=[...new Set(o.targets||[])].filter(id=>state.villages[id]&&!isMine(state.villages[id])); if(!origins.length||!targets.length)return false;
+    const units=Object.fromEntries(Object.entries(o.units||{}).filter(([k,q])=>C.units[k]&&Number.isFinite(Number(q))&&Number(q)>0).map(([k,q])=>[k,Math.floor(Number(q))]));
+    if(!Object.keys(units).length)return false;
+    const interval=Math.max((C.recurringAttacks?.minimumIntervalSeconds||60)*1000,Number(o.intervalMs)||300000),duration=Number(o.durationMs)||0,now=Date.now();state.recurringAttacks.push({id:`rec-${now}-${Math.random()}`,ownerId:currentPlayerId(),origins,targets,units,intervalMs:interval,startAt:now,endAt:duration?now+duration:0,nextAt:now,status:"active",attempts:0,sent:0,failed:0,history:[]});S.save(state);return true;
   }
   function toggleRecurringAttack(id,action){const x=state.recurringAttacks.find(x=>x.id===id&&x.ownerId===currentPlayerId());if(!x)return;if(action==="cancel")x.status="cancelled";else if(action==="pause")x.status="paused";else if(action==="resume"){x.status="active";x.nextAt=Date.now();}S.save(state);}
-  function processRecurring(now){(state.recurringAttacks||[]).forEach(x=>{if(x.status!=="active"||now<x.nextAt)return;if(x.endAt&&now>x.endAt){x.status="finished";return;}x.attempts++;x.origins.forEach(oid=>{const from=state.villages[oid];if(!from||!isMine(from))return;x.targets.forEach(tid=>{const enough=Object.entries(x.units).every(([k,q])=>(from.units[k]||0)>=q);if(!enough){x.failed++;x.history.unshift({time:now,origin:oid,target:tid,status:"failed",reason:"Tropas insuficientes"});return;}if(scheduleAttackFrom(oid,tid,x.units,now+Math.max(250,Math.min(1000,x.intervalMs)),"departure")){x.sent++;x.history.unshift({time:now,origin:oid,target:tid,status:"sent"});}else{x.failed++;x.history.unshift({time:now,origin:oid,target:tid,status:"failed",reason:"Comando não pôde ser enviado"});}});});x.nextAt=Math.max(x.nextAt+x.intervalMs,now+x.intervalMs);if(x.endAt&&x.nextAt>x.endAt)x.status="finished";x.history=x.history.slice(0,Math.max(10,Number(state.settings?.performance?.recurringHistoryLimit)||30));});}
+  function processRecurring(now){(state.recurringAttacks||[]).forEach(x=>{if(x.status!=="active"||now<x.nextAt)return;if(x.endAt&&now>x.endAt){x.status="finished";return;}x.attempts++;x.origins.forEach(oid=>{const from=state.villages[oid];if(!from||from.ownerId!==x.ownerId)return;x.targets.forEach(tid=>{const enough=Object.entries(x.units).every(([k,q])=>(from.units[k]||0)>=q);if(!enough){x.failed++;x.history.unshift({time:now,origin:oid,target:tid,status:"failed",reason:"Tropas insuficientes"});return;}if(scheduleAttackForOwner(oid,tid,x.units,now+1000,"departure",null,x.ownerId)){x.sent++;x.history.unshift({time:now,origin:oid,target:tid,status:"sent"});}else{x.failed++;x.history.unshift({time:now,origin:oid,target:tid,status:"failed",reason:"Comando não pôde ser enviado"});}});});x.nextAt=Math.max(x.nextAt+x.intervalMs,now+x.intervalMs);if(x.endAt&&x.nextAt>x.endAt)x.status="finished";x.history=x.history.slice(0,Math.max(10,Number(state.settings?.performance?.recurringHistoryLimit)||30));});}
+  function shiftDeadlines(ms) {
+    const shift=(obj,keys)=>keys.forEach(k=>{if(Number.isFinite(obj[k])&&obj[k]>0)obj[k]+=ms;});
+    Object.values(state.villages).forEach(v=>{
+      [...v.buildQueue,...v.trainQueue].forEach(q=>shift(q,["start","end","nextAt"]));
+      shift(v,["protectionUntil"]);
+    });
+    state.movements.forEach(m=>shift(m,["start","end","departAt"]));
+    state.recurringAttacks.forEach(x=>shift(x,["startAt","endAt","nextAt"]));
+    shift(state,["lastAiAction","lastBarbarianSpawn","lastPeriodicResourceBonus"]);
+    if(state.market) shift(state.market,["lastUpdate"]);
+  }
   function process(now, dt) {
     let changed = false;
+    if (state.paused) shiftDeadlines(Math.max(0,dt));
     if (!state.paused) {
       updateMarket(now);
       processRecurring(now);
@@ -1271,7 +1314,7 @@
               v.resources[r] + (prod(v, r) * dt * state.speed) / 60000,
             )),
         );
-        if (v.buildQueue[0] && now >= v.buildQueue[0].end) {
+        while (v.buildQueue[0] && now >= v.buildQueue[0].end) {
           { const bk = v.buildQueue[0].building;
             v.buildings[bk] = Math.min(C.buildings[bk]?.maxLevel ?? Infinity, (v.buildings[bk] || 0) + 1); }
           v.buildQueue.shift();
@@ -1280,24 +1323,26 @@
         }
         // Filas independentes por edifício militar; somente o primeiro lote de
         // cada edifício é processado, e as unidades são liberadas uma a uma.
-        const facilities = ["barracks","stable","workshop","academy","statue"];
-        facilities.forEach(facility => {
-          const q = v.trainQueue.find(x => (x.facility || trainingFacility(x.unit)) === facility);
-          if (!q) return;
+        const busy = new Set();
+        v.trainQueue = v.trainQueue.filter(q => {
+          const facility = q.facility || trainingFacility(q.unit);
+          if (busy.has(facility)) return true;
           q.facility = facility;
           q.trained = Math.max(0, Math.floor(q.trained || 0));
-          q.unitDuration = q.unitDuration || ((unitTrainTime(q.unit, v) * 1000) / state.speed);
-          q.nextAt = q.nextAt || (q.start || now) + q.unitDuration * (q.trained + 1);
-          while (q.trained < q.amount && now >= q.nextAt) {
-            v.units[q.unit] = (v.units[q.unit] || 0) + 1;
-            q.trained += 1; q.nextAt += q.unitDuration; changed = true;
+          q.unitDuration = Math.max(1, q.unitDuration || unitTrainTime(q.unit,v)*1000/state.speed);
+          q.nextAt = q.nextAt || (q.start || now) + q.unitDuration*(q.trained+1);
+          const ready = Math.min(q.amount-q.trained, Math.max(0, Math.floor((now-q.nextAt)/q.unitDuration)+1));
+          if (ready > 0) {
+            v.units[q.unit] = (v.units[q.unit] || 0) + ready;
+            q.trained += ready; q.nextAt += ready*q.unitDuration; changed = true;
           }
-          if (q.trained >= q.amount) v.trainQueue.splice(v.trainQueue.indexOf(q),1);
+          if (q.trained >= q.amount) return false;
+          busy.add(facility); return true;
         });
       });
       { const br=state.settings.periodicResourceBonus||C.periodicResourceBonus||{}; const interval=Math.max(1,Number(br.intervalMinutes)||20)*60000;
         if(br.enabled!==false && (!state.lastPeriodicResourceBonus || now-state.lastPeriodicResourceBonus>=interval)){
-          Object.values(state.villages).forEach(v=>{ const isBonus=!v.owner&&v.bonusType&&v.bonusType!=="none"; const eligible=v.owner==="player"?br.players!==false:v.owner==="enemy"?br.enemies!==false:isBonus?br.bonusVillages!==false:br.barbarians!==false; if(!eligible)return; ["wood","clay","iron"].forEach(r=>v.resources[r]=Math.min(cap(v),Number(v.resources[r]||0)+(Number(br.amount)||1000))); });
+          Object.values(state.villages).forEach(v=>{ const isBonus=!v.owner&&v.bonusType&&v.bonusType!=="none"; const eligible=v.owner==="player"?br.players!==false:v.owner==="enemy"?br.enemies!==false:isBonus?br.bonusVillages!==false:br.barbarians!==false; if(!eligible)return; ["wood","clay","iron"].forEach(r=>v.resources[r]=Math.min(cap(v),Number(v.resources[r]||0)+(Math.max(0,Number(br.amount??1000))))); });
           state.lastPeriodicResourceBonus=now; changed=true;
         } }
       state.movements.forEach(m=>{ if(m.scheduled && now>=m.departAt){ m.scheduled=false; m.kind="attack"; m.start=m.departAt; } });
@@ -1350,7 +1395,7 @@
     S.save(state);
     window.dispatchEvent(new Event("game-update"));
   }
-  let last = Date.now(),
+  let last = Math.min(Date.now(), Number(state.lastUpdate) || Date.now()),
     lastSave = Date.now(),
     lastUiTick = 0,
     lastTrim = 0;
@@ -1363,7 +1408,7 @@
       syncEnemies();
     }
     if(n-lastTrim>=60000){ trimWorldHistory(); lastTrim=n; }
-    if (changed || n - lastSave >= (C.autosaveMs || 20000)) {
+    if (n - lastSave >= (C.autosaveMs || 10000)) {
       S.save(state);
       lastSave = n;
     }
@@ -1373,6 +1418,8 @@
       lastUiTick=n;
     }
   }, C.tickMs);
+  window.addEventListener("pagehide",()=>S.save(state));
+  document.addEventListener("visibilitychange",()=>{if(document.hidden)S.save(state);});
   function syncEnemies() {
     const minimum = Math.max(1, Number(state.settings.minimumInitialEnemies ?? C.minimumInitialEnemies) || 10);
     const desired = Math.max(minimum, Math.floor(Number(state.settings.enemyCount) || minimum));
@@ -1443,7 +1490,7 @@
     Object.keys(C.units).forEach(k=>out[k]=Math.max(0,Math.floor(Number(desired?.[k] ?? v.units?.[k] ?? 0)||0)));
     // Filas já reservam população; edição administrativa não pode ignorá-las.
     const queued=(v.trainQueue||[]).reduce((n,q)=>n+(C.units[q.unit]?Math.max(0,(q.amount||0)-(q.trained||0))*C.units[q.unit].population:0),0);
-    const available=Math.max(0,popCap(v)-buildingPopulation(v)-queued);
+    const available=Math.max(0,popCap(v)-buildingPopulation(v)-queued-awayPopulation(v));
     const requested=Object.entries(out).reduce((n,[k,q])=>n+q*(C.units[k]?.population||0),0);
     const ratio=requested>available && requested>0 ? available/requested : 1;
     Object.keys(out).forEach(k=>{ out[k]=Math.floor(out[k]*ratio); if(C.units[k]?.limit) out[k]=Math.min(out[k],C.units[k].limit); });
@@ -1578,6 +1625,7 @@
       if(!spots.length) return notify("Não há espaço livre para uma nova aldeia.","danger");
       const [x,y]=spots[rand(0,spots.length-1)]; const v=makeVillage(x,y,"player",state.settings);
       v.ownerId=pid; v.name=`Aldeia de ${sess.username}`; v.buildings={...Object.fromEntries(Object.keys(C.buildings).map(k=>[k,0])),...clone(state.settings.initialBuildingLevels)};
+      v.protectionUntil=state.settings.beginnerProtection?.enabled===false?0:Date.now()+Math.max(0,Number(state.settings.beginnerProtection?.minutes??15))*60000;
       state.villages[v.id]=v; mine=[v]; state.players[pid].hasStarted=true; state.players[pid].firstVillageId=v.id;
       state.reports.unshift({id:`info-${Date.now()}`,time:Date.now(),type:"info",playerId:pid,title:"Bem-vindo ao mundo",text:`Sua aldeia inicial foi fundada em ${x}|${y}.`});
     }
@@ -1625,7 +1673,11 @@
   }
 
 
-  function bulkBuild(ids, building){ let ok=0; (ids||[]).forEach(vid=>{ const v=state.villages[vid]; if(!v||!isMine(v)||!C.buildings[building])return; const b=C.buildings[building]; if((v.buildings[building]||0)>=b.maxLevel||!meets(v,b.requires))return; const c=buildingCost(building,v); if(!canPay(v,c))return; const queueAllowed=!v.buildQueue.length||state.settings.unlimitedBuildQueue||(v.buildings.keep||0)>=10; if(!queueAllowed)return; pay(v,c); const start=v.buildQueue.length?v.buildQueue[v.buildQueue.length-1].end:Date.now(); v.buildQueue.push({building,start,end:start+(buildingTime(building,v)*1000)/state.speed}); ok++; }); saveRender(); notify(`Construção adicionada em ${ok} aldeia(s).`); }
+  function bulkBuild(ids, building){
+    let ok=0;
+    [...new Set(ids||[])].forEach(vid=>{const v=state.villages[vid];if(!isMine(v)||!C.buildings[building])return;const before=v.buildQueue.length;buildAt(vid,building);if(v.buildQueue.length>before)ok++;});
+    saveRender();notify(`Construção adicionada em ${ok} aldeia(s).`);
+  }
   function bulkRecruitPreset(ids,preset){ let ok=0; (ids||[]).forEach(vid=>{ const v=state.villages[vid]; if(!v||!isMine(v))return; Object.entries(preset||{}).forEach(([k,w])=>{ if(!C.units[k]||w<=0||!meets(v,C.units[k].requires||{}))return; let max=Math.floor((popCap(v)-population(v))/C.units[k].population); for(const r of ["wood","clay","iron"]) max=Math.min(max,Math.floor(v.resources[r]/Math.max(1,unitCost(k,v)[r]))); const n=Math.max(0,Math.min(Math.floor(w),max)); if(n){ recruitAt(v.id,k,n); ok++; } }); }); notify(`Treinos adicionados (${ok} filas).`); }
   function adminBulkFinish(ids,what="all"){
     if(!isAdmin())return;
@@ -1694,10 +1746,12 @@
       saveRender();
     },
     setSpeed(n) {
+      if(!Number.isFinite(Number(n))||Number(n)<=0)return;
       state.speed = Number(n);
       saveRender();
     },
     togglePause() {
+      const now=Date.now(); process(now,Math.max(0,now-last)); last=now;
       state.paused = !state.paused;
       saveRender();
     },
@@ -1714,14 +1768,16 @@
     },
     reset(options = {}) {
       S.clear();
-      state = newState(options);
+      state = migrate(newState(options));
+      last=Date.now(); Object.values(state.villages).forEach(initializeStageRewards); syncEnemies(); ensureCurrentPlayer();
       saveRender();
     },
     export() {
       S.export(state);
     },
     async import(f) {
-      state = migrate(await S.import(f));
+      const next=migrate(await S.import(f));
+      state=next; last=Math.min(Date.now(),Number(state.lastUpdate)||Date.now()); ensureCurrentPlayer();
       saveRender();
     },
   };

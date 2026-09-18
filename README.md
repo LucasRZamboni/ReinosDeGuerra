@@ -1,5 +1,7 @@
 # Reinos De Guerra
 
+**Versão revisada em 18/09/2026.** Veja `REVISAO-2026-09-18.md` para correções, testes e instruções de transferência do progresso.
+
 Jogo solo de estratégia medieval feito com HTML, CSS, Bootstrap e JavaScript puro.
 
 ## Como jogar
@@ -76,7 +78,7 @@ Para experimentar a distribuição territorial completa, crie um novo mundo em *
 - edifícios ainda não construídos deixam de exibir marcadores na aldeia;
 - Quartel, Estábulo, Oficina e Academia abrem diretamente suas opções de treinamento.
 
-O Bootstrap é carregado pela internet. Sem conexão, o jogo continua funcional, mas usa apenas os estilos próprios.
+O Bootstrap está incluído localmente em `vendor/`; não é necessária conexão para carregar estilos e modais.
 
 ## Versão 5.0
 
