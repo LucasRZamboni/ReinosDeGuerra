@@ -391,3 +391,11 @@ Os antigos `villageMilestones` foram incorporados a `GAME_CONFIG.achievements`. 
 - Painel de tropas disponíveis junto às configurações de envio, atualizado conforme as origens selecionadas.
 - Ataques recorrentes aceitam intervalo em segundos ou minutos; duração permanece em minutos.
 - Intervalo mínimo técnico reduzido para 1 segundo e tick do mundo ajustado para 1 segundo.
+
+## Correções de combate (20/10/2026)
+- Espionagem resolvida antes e separada da batalha: só Batedores contra Batedores (próprios + apoio). Ataque apenas com Batedores não gera combate, e Batedores que vencem o duelo voltam mesmo se o ataque principal perder.
+- Relatório de defesa com apoio: perdas agora consideram as tropas de apoio sobreviventes (perdas + sobreviventes = tropas antes).
+- Lealdade se recupera com o tempo (`loyaltyRegenPerHour` em `config.js`, padrão 1 por hora × velocidade do mundo; 0 desativa).
+- Aríetes reduzem a Muralha antes da batalha. Na vitória o dano fica permanente; na derrota, só uma parte proporcional à força do ataque.
+- Saque redistribui a capacidade de carga: o que um recurso não preenche passa para os outros.
+- 7 novos testes em `tests/regression.cjs` (24 no total).

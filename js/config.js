@@ -132,6 +132,8 @@ window.GAME_CONFIG = {
   bonusDefaults: { chance: 15, wood: 30, clay: 30, iron: 30, farm: 10, resources: 15, barracks: 10, stable: 10, storage: 50 },
   baseVillageDefense: 20,
   conquestLoyaltyDamage: [25, 35],
+  // Lealdade recuperada por hora (multiplicada pela velocidade do mundo). 0 desativa.
+  loyaltyRegenPerHour: 1,
   productionByLevel: [
     0, 30, 35, 41, 47, 55, 64, 74, 86, 100, 117, 136, 158, 184, 214, 249, 289,
     337, 391, 455, 530, 616, 717, 833, 969, 1127, 1311, 1525, 1774, 2063, 2400,

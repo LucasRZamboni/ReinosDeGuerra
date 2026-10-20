@@ -843,6 +843,24 @@
       ]),
     );
   }
+  // Divide a capacidade de carga entre os recursos. A parte que um recurso não
+  // consegue preencher (pouco estoque ou Armazém do atacante cheio) passa
+  // para os outros, em vez de voltar vazia.
+  function splitLoot(capacity, limits) {
+    const out = { wood: 0, clay: 0, iron: 0 };
+    let remaining = Math.max(0, Math.floor(capacity)),
+      open = ["wood", "clay", "iron"].filter(r => (limits[r] || 0) > 0);
+    while (remaining > 0 && open.length) {
+      const share = Math.floor(remaining / open.length);
+      if (share === 0) { // sobra menor que o número de recursos
+        for (const r of open) { if (!remaining) break; if (out[r] < limits[r]) { out[r]++; remaining--; } }
+        break;
+      }
+      for (const r of open) { const take = Math.min(share, limits[r] - out[r]); out[r] += take; remaining -= take; }
+      open = open.filter(r => out[r] < limits[r]);
+    }
+    return out;
+  }
   function combatKey(v){ return v?.owner==="enemy" ? (v.aiId||`ai-${v.id}`) : v?.owner==="player" ? v.ownerId : null; }
   function combatStat(key){ if(!key) return null; return state.combatStats[key]||(state.combatStats[key]={attackerPoints:0,defenderPoints:0,supporterPoints:0,conquests:0,enemyPopulationDefeated:0,villagesPlundered:0,resourcesPlundered:0,uniqueEnemiesAttacked:[],catapultLevelsDestroyed:0,wallLevelsDestroyed:0,noblesDefeated:0,armiesDestroyed:0,buildingLevelsBuilt:0,unitsRecruited:0,marketTrades:0}); }
   function unitLossScore(units){ return Object.entries(units||{}).reduce((n,[k,q])=>n+q*(C.units[k]?.population||1),0); }
@@ -888,24 +906,54 @@
       stationedSupports = Object.values(state.supportStationed||{}).filter(s=>s.targetId===target.id),
       supportUnits = stationedSupports.reduce((sum,s)=>{Object.entries(s.units||{}).forEach(([k,q])=>sum[k]=(sum[k]||0)+(Number(q)||0));return sum;},emptyUnits()),
       combinedDefenseUnits = Object.fromEntries(Object.keys(C.units).map(k=>[k,(target.units[k]||0)+(supportUnits[k]||0)])),
-      ownDefenseStrength = strength(target.units,"defense",mix,target.buildings.wall||0),
-      supportDefenseStrength = stationedSupports.map(s=>({s,score:strength(s.units||{},"defense",mix,target.buildings.wall||0)})),
+      // Aríetes agem antes da batalha: a Muralha usada no combate já está reduzida.
+      wallBefore = target.buildings.wall || 0,
+      ramsSent = m.units.ram || 0,
+      ramDamage = ramsSent > 0 ? Math.max(1, Math.floor(ramsSent / 20)) : 0,
+      battleWall = Math.max(0, wallBefore - ramDamage),
+      ownDefenseStrength = strength(target.units,"defense",mix,battleWall),
+      supportDefenseStrength = stationedSupports.map(s=>({s,score:strength(s.units||{},"defense",mix,battleWall)})),
       defRaw = C.baseVillageDefense + ownDefenseStrength + supportDefenseStrength.reduce((n,x)=>n+x.score,0),
+      // Ataque apenas com Batedores é espionagem pura: não há batalha.
+      scoutOnly = Object.entries(m.units).every(([k,q])=>k==="scout"||!(q>0)) && (m.units.scout||0) > 0,
       atk = atkRaw * (0.9 + Math.random() * 0.2),
       def = defRaw * (0.9 + Math.random() * 0.2),
       ratio = atk / (atk + def || 1),
-      win = atk > def,
+      win = !scoutOnly && atk > def,
       attackBefore = clone(m.units),
       defBefore = clone(combinedDefenseUnits),
       survivors = {};
+    // Duelo de Batedores, resolvido antes e separado da batalha principal.
+    // Só os Batedores do defensor (próprios + apoio) contam. A espionagem vale
+    // mesmo que o ataque principal seja derrotado, e as informações refletem
+    // a aldeia antes do combate.
+    const attackScouts = attackBefore.scout || 0,
+      defenderScouts = combinedDefenseUnits.scout || 0,
+      spied = attackScouts > defenderScouts,
+      scoutsAfterDuel = spied ? Math.max(1, attackScouts - Math.round(attackScouts * Math.min(1, Math.pow(defenderScouts / attackScouts, 1.5)))) : 0;
+    let intel = null;
+    if (attackScouts) {
+      intel = { success: spied, reason: spied ? "Espionagem concluída." : defenderScouts > 0 ? "Os batedores defensores impediram a espionagem." : "Espionagem falhou." };
+      if (spied) {
+        const scoutAdvantage = Math.max(1, attackScouts - defenderScouts);
+        intel.level = scoutAdvantage >= 100 ? 3 : scoutAdvantage >= 25 ? 2 : 1;
+        intel.reason = intel.level === 3 ? "Espionagem completa: recursos, edifícios e tropas revelados." : intel.level === 2 ? "Espionagem avançada: recursos e edifícios revelados." : "Espionagem básica: recursos revelados.";
+        const hidden=hideCapacity(target);
+        intel.resources = Object.fromEntries(["wood","clay","iron"].map(r=>[r,Math.max(0,Math.floor((target.resources[r]||0)-hidden))]));
+        if (intel.level >= 2) intel.buildings = clone(target.buildings);
+        if (intel.level >= 3) intel.units = clone(combinedDefenseUnits);
+      }
+    }
     // Curva de baixas baseada na relação entre as forças. O lado derrotado é
     // destruído; o vencedor perde proporcionalmente à força do adversário.
     // Isso impede casos absurdos como 1 unidade eliminando centenas de defensores.
-    const attackerLossRate = win ? Math.min(1, Math.pow(def / Math.max(1, atk), 1.5)) : 1;
-    const defenderLossRate = win ? 1 : Math.min(1, Math.pow(atk / Math.max(1, def), 1.5));
+    const attackerLossRate = scoutOnly ? 0 : win ? Math.min(1, Math.pow(def / Math.max(1, atk), 1.5)) : 1;
+    const defenderLossRate = scoutOnly ? 0 : win ? 1 : Math.min(1, Math.pow(atk / Math.max(1, def), 1.5));
     Object.entries(m.units).forEach(([k,q]) =>
       survivors[k] = Math.max(0, q - Math.round(q * attackerLossRate))
     );
+    // Batedores não lutam na batalha principal; só o duelo decide quem volta.
+    if (attackScouts) survivors.scout = scoutsAfterDuel;
     // Nobres são unidades de conquista, não linha de frente. Quando há escolta
     // suficiente para vencer a batalha, eles permanecem protegidos. Sem escolta
     // (ou numa derrota), continuam sujeitos às baixas normais.
@@ -937,6 +985,14 @@
       loyaltyDamage = 0,
       loyaltyAfter = loyaltyBefore,
       siege = { ram: null, catapult: null };
+    if (ramsSent > 0 && !scoutOnly) {
+      // Na vitória, o dano dos Aríetes fica permanente. Na derrota, só uma parte
+      // proporcional à força do ataque permanece.
+      const permanent = win ? ramDamage : Math.floor(ramDamage * ratio);
+      target.buildings.wall = Math.max(0, wallBefore - permanent);
+      siege.ram = { building: "wall", before: wallBefore, battleLevel: battleWall, after: target.buildings.wall, levelsDestroyed: wallBefore - target.buildings.wall, sent: ramsSent };
+      if(ast)ast.wallLevelsDestroyed=(ast.wallLevelsDestroyed||0)+(wallBefore-target.buildings.wall);
+    }
     if (win) {
       const capacity = Object.entries(survivors).reduce(
         (n, [k, q]) => n + q * C.units[k].carry,
@@ -944,20 +1000,16 @@
       );
       if(ast)ast.villagesPlundered=(ast.villagesPlundered||0)+1;
       const hiddenPerResource=hideCapacity(target), attackerCap=cap(from);
+      const limits = Object.fromEntries(["wood","clay","iron"].map(r=>[r,Math.min(
+        Math.max(0,Math.floor((target.resources[r]||0)-hiddenPerResource)),
+        Math.max(0,Math.floor(attackerCap-(from.resources[r]||0))),
+      )]));
+      Object.assign(loot, splitLoot(capacity, limits));
       ["wood", "clay", "iron"].forEach((r) => {
-        const visibleResources=Math.max(0,Math.floor((target.resources[r]||0)-hiddenPerResource));
-        const freeStorage=Math.max(0,Math.floor(attackerCap-(from.resources[r]||0)));
-        loot[r] = Math.min(visibleResources, Math.floor(capacity / 3), freeStorage);
         target.resources[r] -= loot[r];
         from.resources[r] += loot[r];
         if(ast)ast.resourcesPlundered=(ast.resourcesPlundered||0)+loot[r];
       });
-      if ((attackBefore.ram || 0) > 0) {
-        const before = target.buildings.wall || 0,
-          damage = Math.max(1, Math.floor(attackBefore.ram / 20));
-        target.buildings.wall = Math.max(0, before - damage);
-        siege.ram = { building: "wall", before, after: target.buildings.wall, levelsDestroyed: before - target.buildings.wall, sent: attackBefore.ram }; if(ast)ast.wallLevelsDestroyed=(ast.wallLevelsDestroyed||0)+(before-target.buildings.wall);
-      }
       if ((attackBefore.catapult || 0) > 0) {
         const targets = Object.keys(C.buildings).filter(
             (k) => (target.buildings[k] || 0) > 0 && k !== "hide",
@@ -979,12 +1031,14 @@
         // uma redução de lealdade. Reduções múltiplas exigem comandos separados.
         if (target.loyalty > 0) loyaltyDamage = rand(...C.conquestLoyaltyDamage);
         target.loyalty = Math.max(0, target.loyalty - loyaltyDamage);
+        target.loyaltyProgress = 0;
         loyaltyAfter = target.loyalty;
         if (target.loyalty <= 0) {
           target.owner = from.owner === "enemy" ? "enemy" : "player";
           target.ownerId = from.owner === "player" ? from.ownerId : null;
           if (from.owner === "enemy") { target.aiProfile = from.aiProfile || "expansive"; target.aiId = from.aiId || `ai-${from.id}`; }
           target.loyalty = 100;
+          target.loyaltyProgress = 0;
           target.name = `Fortaleza ${target.x}|${target.y}`;
           survivors.noble--;
           conquered = true;
@@ -1005,27 +1059,6 @@
         }
       }
     }
-    const attackScouts = attackBefore.scout || 0,
-      remainingScouts = survivors.scout || 0,
-      defenderScouts = target.units.scout || 0,
-      spied = attackScouts > 0 && remainingScouts > defenderScouts,
-      intel = attackScouts
-        ? {
-            success: spied,
-            reason: spied
-              ? "Espionagem concluída."
-              : "Os batedores defensores impediram a espionagem.",
-          }
-        : null;
-    if (spied) {
-      const scoutAdvantage = Math.max(1, remainingScouts - defenderScouts);
-      intel.level = scoutAdvantage >= 100 ? 3 : scoutAdvantage >= 25 ? 2 : 1;
-      intel.reason = intel.level === 3 ? "Espionagem completa: recursos, edifícios e tropas revelados." : intel.level === 2 ? "Espionagem avançada: recursos e edifícios revelados." : "Espionagem básica: recursos revelados.";
-      const hidden=hideCapacity(target);
-      intel.resources = Object.fromEntries(["wood","clay","iron"].map(r=>[r,Math.max(0,Math.floor((target.resources[r]||0)-hidden))]));
-      if (intel.level >= 2) intel.buildings = clone(target.buildings);
-      if (intel.level >= 3) intel.units = clone(target.units);
-    }
     // Relatórios de batalha pertencem ao jogador: não registrar combates
     // entre inimigos/bárbaros que não envolvam nenhuma aldeia do jogador.
     const reportRecipients = [...new Set([attackerOwnerBefore === "player" ? attackerOwnerIdBefore : null, defenderOwnerBefore === "player" ? defenderOwnerIdBefore : null].filter(Boolean))];
@@ -1034,8 +1067,9 @@
       recipients: reportRecipients,
       id: `rpt-${Date.now()}-${Math.random()}`,
       time: Date.now(),
-      type: win ? "win" : "loss",
-      victory: win,
+      type: scoutOnly ? (spied ? "win" : "loss") : win ? "win" : "loss",
+      victory: scoutOnly ? spied : win,
+      espionage: scoutOnly,
       attackerPlayerId: attackerOwnerBefore === "player" ? attackerOwnerIdBefore : null,
       defenderPlayerId: defenderOwnerBefore === "player" ? defenderOwnerIdBefore : null,
       attacker,
@@ -1049,7 +1083,7 @@
       },
       defending: {
         before: defBefore,
-        losses: losses(defBefore, target.units),
+        losses: losses(defBefore, combinedAfter),
         survivors: clone(combinedAfter),
       },
       loot,
@@ -1314,6 +1348,15 @@
               v.resources[r] + (prod(v, r) * dt * state.speed) / 60000,
             )),
         );
+        // Lealdade se recupera com o tempo até 100. O acumulador guarda a fração
+        // para o valor exibido continuar inteiro.
+        const loyaltyRegen = Number(state.settings.loyaltyRegenPerHour ?? C.loyaltyRegenPerHour ?? 0);
+        if (loyaltyRegen > 0 && (v.loyalty ?? C.baseLoyalty) < 100) {
+          v.loyaltyProgress = (Number(v.loyaltyProgress) || 0) + (loyaltyRegen * dt * state.speed) / 3600000;
+          const gained = Math.floor(v.loyaltyProgress);
+          if (gained > 0) { v.loyalty = Math.min(100, (v.loyalty ?? C.baseLoyalty) + gained); v.loyaltyProgress -= gained; changed = true; }
+          if (v.loyalty >= 100) v.loyaltyProgress = 0;
+        }
         while (v.buildQueue[0] && now >= v.buildQueue[0].end) {
           { const bk = v.buildQueue[0].building;
             v.buildings[bk] = Math.min(C.buildings[bk]?.maxLevel ?? Infinity, (v.buildings[bk] || 0) + 1); }
